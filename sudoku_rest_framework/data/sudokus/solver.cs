@@ -111,6 +111,13 @@ class SudokuSolution {
 
 class Solver
 {
+    // Strategy
+    // 1. Given populated candidates[][], sort the bags by lowest number of candidates.
+    //    For the bags, one by one try each equal choice.
+    //    If the attempt eventually succeeds, add to the steps_to_success List.
+    //    Else add to steps_to_failure list.
+
+    //  2. Update, re-analyze and re-sort candidates[][].
     public static void SolveSudoku() {
         Console.WriteLine("In SolveSudoku. Solution File Path is " + solution_file_path);
     }
