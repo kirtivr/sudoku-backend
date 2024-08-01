@@ -52,6 +52,10 @@
         "ratio": "cpp",
         "semaphore": "cpp",
         "stop_token": "cpp",
-        "thread": "cpp"
+        "thread": "cpp",
+        "codecvt": "cpp",
+        "cstring": "cpp",
+        "iomanip": "cpp",
+        "sstream": "cpp"
     }
 }
