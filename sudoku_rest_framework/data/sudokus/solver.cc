@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <queue>
 #include <algorithm>
+#include <random>
 namespace fs = std::filesystem;
 
 std::optional<std::vector<fs::path>> ReadDirectory(std::string directory_path)
@@ -75,6 +76,18 @@ typedef struct CellCandidate {
     int col; // 0 - 3/8.
     int house; // 0 - 3/8.
     std::set<int> candidates;
+
+    bool operator==(const CellCandidate& rhs) const {
+        return candidates.size() == rhs.candidates.size();
+    }
+
+    bool operator>(const CellCandidate& rhs) const {
+        return candidates.size() > rhs.candidates.size();
+    }
+
+    bool operator<(const CellCandidate& rhs) const {
+        return candidates.size() < rhs.candidates.size();
+    }
 } CellCandidate;
 
 typedef struct Point {
@@ -237,7 +250,7 @@ public:
     // Delete default ctor.
     ParsedSudoku() = delete;
 
-    static std::optional<ParsedSudoku> ParsedSudokuFactory(fs::path problem_file_path);
+    static std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudokuFactory(fs::path problem_file_path);
 
 private:
     ParsedSudoku(
@@ -265,7 +278,7 @@ private:
 };
 
 // Factory to generate a fully initialized ParsedSudoku.
-std::optional<ParsedSudoku> ParsedSudoku::ParsedSudokuFactory(fs::path problem_file_path)
+std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(fs::path problem_file_path)
 {
     std::string file_contents;
     std::ifstream sudoku_fs(problem_file_path);
@@ -322,7 +335,7 @@ std::optional<ParsedSudoku> ParsedSudoku::ParsedSudokuFactory(fs::path problem_f
         {3, std::make_pair<Point, Point>({.row = mid + 1, .col = mid + 1}, {.row = end, .col = end})}
     };
     auto cell_candidates = ComputeInitialCandidates(rank, givens, houses);
-    return std::optional<ParsedSudoku>(
+    return std::make_unique<ParsedSudoku>(
         ParsedSudoku(sudoku_id, problem_file_path, file_contents, rank, std::move(givens),
         std::move(cell_candidates), std::move(houses)));
 }
@@ -337,30 +350,85 @@ class Solver
 
     //  2. Update, re-analyze and re-sort candidates[][].
 public:
-    void SolveSudoku() {
 
+    // Runs in a single thread.
+    void SolveSudoku() {
+        SudokuSolution solution;
+        std::copy(sudoku->givens.begin(), sudoku->givens.end(), std::back_inserter(solution.solution));  
+        SolveSudokuAndRecurse(step_zero_pq, solution);
     }
 
-    Solver(ParsedSudoku *sudoku, SudokuSolution *solution, fs::path output_folder)
+    Solver(std::unique_ptr<ParsedSudoku> sudoku, std::unique_ptr<SudokuSolution> solution, fs::path output_folder)
     {
-        sudoku = sudoku;
-        solution_file_path = output_folder;
-        solution = solution;
+        this->sudoku = std::move(sudoku);
+        this->solution = std::move(solution);
+        this->solution_file_path = output_folder;
+        BuildInitialPriorityQueue();
     }
 
     Solver() = delete;
 
 private:
-    void WriteSudokuSolutionToFile()
-    {
+    void UpdateCandidateCells() {
+        
     }
 
-    ParsedSudoku *sudoku = nullptr;
-    fs::path solution_file_path;
-    SudokuSolution *solution;
+    uint32_t generate_random_number_in_range(uint32_t low, uint32_t high, int picked_already[]) {
+        std::random_device rd; // obtain a random number from hardware
+        std::mt19937 gen(rd()); // seed the generator
+        std::uniform_int_distribution<> distr(0, max_index); // define the range
+        int generated = distr(gen);
+        while (picked_already[generated] == 0) {
+            generated = distr(gen);
+        }
+        return generated;
+    }
 
-public:
-    int what = 0;
+    void SolveSudokuAndRecurse(std::priority_queue pq, SudokuSolution solution) {
+        if (pq.empty()) {
+            solutions.push_back(solution);
+            return;
+        }
+
+        CandidateCell& optimal_next_cell = pq.top();
+
+        // Pick a candidate coloring for the cell.
+        int num_candidates = optimal_next_cell.candidates.size();
+        int picked_already[num_candidates] = {0};
+        int num_picked = 0;
+
+        while (num_picked < num_candidates) {
+            int picked_candidate =
+                optimal_next_cell[generate_random_number_in_range(0, optimal_next_cell.candidates.size() - 1, picked_already)];
+            picked_already[picked_candidate] = 1;
+            pq.pop();
+            optimal_next_cell.candidates = {picked_candidate};
+            solution.solution[optimal_next_cell.row][optimal_next_cell.col] = picked_candidate;
+
+            // Update the candidate cells in the priority queue.
+            UpdateCandidateCells();
+            SolveSudokuAndRecurse(pq, solution);
+
+            // Undo previous update.
+            UpdateCandidateCells();
+            solution.solution[optimal_next_cell.row][optimal_next_cell.col] = 0;
+        }
+    }
+
+    void BuildInitialPriorityQueue() {
+        for (auto it = sudoku->get_candidates().begin();
+             it != sudoku->get_candidates().end(); it++) {
+                // Does this make a copy? .
+                step_zero_pq.push(it->second);
+             }
+    }
+
+    void WriteSudokuSolutionToFile() {}
+
+    std::unique_ptr<ParsedSudoku> sudoku;
+    fs::path solution_file_path;
+    std::vector<SudokuSolution> found_solutions;
+    std::priority_queue<CellCandidate> step_zero_pq;
 };
 
 class SolveSudokusInFolder
@@ -369,8 +437,7 @@ public:
     void AnalyseSudokus(std::string input_folder, std::string output_folder)
     {
         std::vector<fs::path> sudoku_pathnames = GetSudokuPathnames(input_folder);
-        std::vector<ParsedSudoku> parsed_sudokus = ParseSudokuProblems(sudoku_pathnames);
-        std::vector<SudokuSolution> solutions(parsed_sudokus.size());
+        std::vector<std::unique_ptr<ParsedSudoku>> parsed_sudokus = ParseSudokuProblems(sudoku_pathnames);
         std::cout << "starting threads parsed_sudokus.size() = " << parsed_sudokus.size() << std::endl;
 
         // For each Sudoku, we create a thread to solve and publish the result of the sudoku
@@ -379,7 +446,7 @@ public:
         std::vector<Solver> solvers;
         for (unsigned int i = 0; i < parsed_sudokus.size(); i++)
         {
-            solvers.emplace_back(&parsed_sudokus[i], &solutions[i], output_folder);
+            solvers.emplace_back(std::move(parsed_sudokus[i]), parsed_sudokus[i]->givens, output_folder);
             std::thread new_thread = std::thread(&Solver::SolveSudoku, &solvers[i]);
             new_thread.join();
             // sudoku_threads.push_back(std::move(new_thread));
@@ -393,10 +460,6 @@ public:
                     }*/
 
         std::cout << "threads joined parsed_sudokus.size() = " << parsed_sudokus.size() << std::endl;
-        for (unsigned int i = 0; i < parsed_sudokus.size(); i++)
-        {
-            std::cout << solvers[i].what << std::endl;
-        }
     }
 
 private:
@@ -411,16 +474,16 @@ private:
         return {};
     }
 
-    std::vector<ParsedSudoku> ParseSudokuProblems(std::vector<fs::path> &sudoku_problem_files)
+    std::vector<std::unique_ptr<ParsedSudoku>> ParseSudokuProblems(std::vector<fs::path> &sudoku_problem_files)
     {
-        std::vector<ParsedSudoku> parsed_sudokus = {};
+        std::vector<std::unique_ptr<ParsedSudoku>> parsed_sudokus = {};
         for (auto &file : sudoku_problem_files)
         {
             // std::cout << "passing file " << file << std::endl;
-            std::optional<ParsedSudoku> maybe_parsed_file = ParsedSudoku::ParsedSudokuFactory(file);
+            auto maybe_parsed_file = ParsedSudoku::ParsedSudokuFactory(file);
             if (maybe_parsed_file != std::nullopt)
             {
-                parsed_sudokus.push_back(*maybe_parsed_file);
+                parsed_sudokus.push_back(std::move(*maybe_parsed_file));
             }
         }
         return parsed_sudokus;
