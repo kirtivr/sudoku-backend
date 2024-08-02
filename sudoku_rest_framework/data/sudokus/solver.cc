@@ -11,6 +11,7 @@
 #include <cstring>
 #include <vector>
 #include <map>
+#include <set>
 #include <optional>
 #include <iostream>
 #include <fstream>
@@ -23,7 +24,6 @@ namespace fs = std::filesystem;
 std::optional<std::vector<fs::path>> ReadDirectory(std::string directory_path)
 {
     DIR *ptr = opendir(directory_path.c_str());
-
     if (ptr == NULL)
     {
         printf("Could not open given directory: %s", directory_path.c_str());
@@ -31,7 +31,6 @@ std::optional<std::vector<fs::path>> ReadDirectory(std::string directory_path)
     }
 
     struct dirent *entry;
-
     std::vector<fs::path> directory_contents;
     fs::path dir (directory_path);
     while ((entry = readdir(ptr)) != NULL)
@@ -77,6 +76,11 @@ typedef struct CellCandidate {
     int box; // 0 - 3/8.
     std::set<int> candidates;
 } CellCandidate;
+
+typedef struct Point {
+  int row;
+  int col;
+} Point;
 
 // This class is thread-compatible.
 // It is only ever used by one thread.
@@ -124,6 +128,24 @@ public:
         return givens_in_col;
     }
 
+    bool is_in_bounding_box(int row, int col, Point tl, Point br) {
+      if (row >= tl.row && col >= tl.col) {
+	if (row <= br.row && col <= br.col) {
+	  return true;
+	}
+      }
+      return false;
+    }
+  
+    int get_box_for_cell(int row, int col) {
+      for (auto it = house.begin(); it != house.end(); it++) {
+	if (is_in_bounding_box(row, col, it->second->first, it->second->second)) {
+	  return it->first;
+	}
+      }
+      return -1;
+    }
+
     std::set<int> givens_in_box(int row, int col, std::vector<std::vector<int>> givens) {
         // 4 Quadrants.
         // If rank is odd:
@@ -131,10 +153,18 @@ public:
         //  [rank * rank // 2 + 1, 0] to [rank * rank - 1, rank * rank // 2]
         //  [0, rank * rank // 2 + 1] to [rank * rank // 2, rank * rank - 1]
         //  [rank * rank // 2 + 1, [rank * rank // 2 + 1] to [rank * rank - 1, rank * rank - 1]
+      int box = get_box_for_cell(row, col);
+      {auto top_left, auto bottom_right} = house[box];
 
-        int rank = math.sqrt(givens.size());
+      std::set<int> givens_in_house {};
+      for (int row = top_left.row; row <= bottom_right.row; row++) {
+	for (int col = top_left.col; row <= bottom_right.col; col++) {
+	  givens_in_house.insert(givens[row][col]);
+	}
+      }
+      return givens_in_house;
     }
-
+  
     std::map<std::pair<int, int> CellCandidate> ComputeInitialCandidates(int rank, std::vector<std::vector<int>> givens) {
         int rows = rank * rank;
         int cols = rank * rank;
