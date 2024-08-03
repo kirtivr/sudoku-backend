@@ -1,0 +1,2 @@
+mkdir -p obj/
+g++ -I. -Wall -pedantic -std=c++20 -fsanitize=address solver.cc -o obj/solver.o -lm
