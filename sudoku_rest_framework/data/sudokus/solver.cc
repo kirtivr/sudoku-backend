@@ -350,7 +350,6 @@ class Solver
 
     //  2. Update, re-analyze and re-sort candidates[][].
 public:
-
     // Runs in a single thread.
     void SolveSudoku() {
         SudokuSolution solution;
@@ -369,9 +368,20 @@ public:
     Solver() = delete;
 
 private:
-    void UpdateCandidateCells() {
-        
-    }
+    class SudokuStepState {
+        public:
+            void Add(CellCandidate& cell, uint32_t value) {
+                
+            }
+
+            void Subtract(CellCandidate& cell, uint32_t value) {
+
+            }
+
+            std::priority_queue<CellCandidate> step_zero_pq;
+            std::vector<std::vector<int>> assignments;
+            std::map<Point, CellCandidate> pq_map;
+    };
 
     uint32_t generate_random_number_in_range(uint32_t low, uint32_t high, int picked_already[]) {
         std::random_device rd; // obtain a random number from hardware
@@ -384,18 +394,18 @@ private:
         return generated;
     }
 
-    void SolveSudokuAndRecurse(std::priority_queue pq, SudokuSolution solution) {
+    void SolveSudokuAndRecurse(std::priority_queue<CellCandidate> pq, SudokuSolution solution) {
         if (pq.empty()) {
             solutions.push_back(solution);
             return;
         }
 
-        CandidateCell& optimal_next_cell = pq.top();
+        CellCandidate& optimal_next_cell = pq.top();
 
         // Pick a candidate coloring for the cell.
-        int num_candidates = optimal_next_cell.candidates.size();
-        int picked_already[num_candidates] = {0};
-        int num_picked = 0;
+        uint32_t num_candidates = optimal_next_cell.candidates.size();
+        uint32_t picked_already[num_candidates] = {0};
+        uint32_t num_picked = 0;
 
         while (num_picked < num_candidates) {
             int picked_candidate =
@@ -428,7 +438,6 @@ private:
     std::unique_ptr<ParsedSudoku> sudoku;
     fs::path solution_file_path;
     std::vector<SudokuSolution> found_solutions;
-    std::priority_queue<CellCandidate> step_zero_pq;
 };
 
 class SolveSudokusInFolder
