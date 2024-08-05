@@ -20,15 +20,33 @@
 #include <queue>
 #include <algorithm>
 #include <random>
+#include <iterator>
 namespace fs = std::filesystem;
 
-std::optional<std::vector<fs::path>> ReadDirectory(std::string directory_path)
+static std::vector<std::string> splitstring(std::string given, std::string token)
+{
+    std::size_t pos_start = 0, pos_end, delim_len = token.length();
+    std::string chunk;
+    std::vector<std::string> out;
+
+    while ((pos_end = given.find(token, pos_start)) != std::string::npos)
+    {
+        chunk = given.substr(pos_start, pos_end - pos_start);
+        pos_start = pos_end + delim_len;
+        out.push_back(chunk);
+    }
+
+    out.push_back(given.substr(pos_start));
+    return out;
+}
+
+std::vector<fs::path> ReadDirectory(std::string directory_path)
 {
     DIR *ptr = opendir(directory_path.c_str());
     if (ptr == NULL)
     {
         printf("Could not open given directory: %s", directory_path.c_str());
-        return std::nullopt;
+        return {};
     }
 
     struct dirent *entry;
@@ -106,7 +124,24 @@ typedef struct Point {
   bool operator<(const Point& rhs) const {
     return rhs > *this && *this != rhs;
   }
+ 
+  friend std::ostream &operator<<(std::ostream &os, const Point &p);
 } Point;
+
+std::ostream &operator<<(std::ostream &os, const Point &p)
+{
+    os << p.row << " " << p.col;
+    return os;
+}
+
+void print_sudoku_assignments(std::vector<std::vector<int>>& assignments) {
+    for (uint32_t row = 0; row < assignments.size(); row ++) {
+        for (uint32_t col = 0; col < assignments[0].size(); col ++) {
+            printf("%d\t", assignments[row][col]);
+        }
+        printf("\n");
+    }
+}
 
 std::set<int> givens_in_row(int row, std::vector<std::vector<int>> givens) {
     std::set<int> givens_in_row {};
@@ -147,19 +182,18 @@ int get_house_for_cell(int row, int col, std::map<int, std::pair<Point, Point>> 
 }
 
 std::set<Point> points_in_house(int row, int col, std::map<int, std::pair<Point, Point>> houses) {
-    // 4 Quadrants.
-    // If rank is odd:
-    //  [0, 0] to [rank * rank // 2, rank * rank // 2]
-    //  [rank * rank // 2 + 1, 0] to [rank * rank - 1, rank * rank // 2]
-    //  [0, rank * rank // 2 + 1] to [rank * rank // 2, rank * rank - 1]
-    //  [rank * rank // 2 + 1, [rank * rank // 2 + 1] to [rank * rank - 1, rank * rank - 1]
+    /*for (auto& x : houses) {
+        std::cout << "house " << x.first << " co-ordinates, top left: " << x.second.first << " bottom right: " << x.second.second << std::endl;
+    }*/
     int house = get_house_for_cell(row, col, houses);
-    auto [top_left, bottom_right] = houses[house];
+    //std::cout << "house for cell " << row << " " << col << " is " << house << std::endl;
+    auto& [top_left, bottom_right] = houses[house];
+    //std::cout << "top left " << top_left << " br " << bottom_right << std::endl;
 
     std::set<Point> points;
-    for (int row = top_left.row; row <= bottom_right.row; row++) {
-    for (int col = top_left.col; row <= bottom_right.col; col++) {
-        points.insert(Point{.row = row, .col = col});
+    for (int i = top_left.row; i <= bottom_right.row; i++) {
+    for (int j = top_left.col; j <= bottom_right.col; j++) {
+        points.insert(Point{.row = i, .col = j});
     }}
 
     return points;
@@ -189,24 +223,10 @@ CellCandidate CreateCellCandidate(int row, int col, std::set<int> possibles, std
     };
 }
 
-static std::vector<std::string> splitstring(std::string given, std::string token)
-{
-    std::size_t pos_start = 0, pos_end, delim_len = token.length();
-    std::string chunk;
-    std::vector<std::string> out;
-
-    while ((pos_end = given.find(token, pos_start)) != std::string::npos)
-    {
-        chunk = given.substr(pos_start, pos_end - pos_start);
-        pos_start = pos_end + delim_len;
-        out.push_back(chunk);
-    }
-
-    out.push_back(given.substr(pos_start));
-    return out;
-}
-
-std::map<Point, CellCandidate> ComputeInitialCandidates(int rank, std::vector<std::vector<int>> givens, std::map<int, std::pair<Point, Point>> houses) {
+std::map<Point, CellCandidate>
+ComputeInitialCandidates(int rank,
+                         std::vector<std::vector<int>> givens,
+                         std::map<int, std::pair<Point, Point>> houses) {
     int rows = rank * rank;
     int cols = rank * rank;
     std::map<Point, CellCandidate> candidates;
@@ -215,7 +235,8 @@ std::map<Point, CellCandidate> ComputeInitialCandidates(int rank, std::vector<st
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             if (givens[i][j] != 0) {
-                candidates.insert({Point {.row = i, .col = j}, CreateCellCandidate(i, j, std::set<int>{givens[i][j]}, houses)});
+                // If a value is given for a cell, we should not have to consider the candidates for that cell.
+                // candidates.insert({Point {.row = i, .col = j}, CreateCellCandidate(i, j, std::set<int>{givens[i][j]}, houses)});
                 continue;
             }
             std::set<int> all_givens = givens_in_row(i, givens);
@@ -265,7 +286,6 @@ public:
         return houses;
     }
 
-
     // Delete default ctor.
     ParsedSudoku() = delete;
 
@@ -281,6 +301,7 @@ private:
         this->sudoku_id = sudoku_id;
         this->problem_file_path = problem_file_path;
         this->compressed_repr = compressed_repr;
+        this->rank = rank;
         this->givens = std::move(givens);
         this->houses = std::move(houses);
     }
@@ -311,12 +332,13 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
     }
 
     // Givens is one std::string of comma separated:
-    // rowcolumnvalue std::strings.
+    // valuerowcolumn std::strings.
     // First find the Rank of the sudoku by counting the
     // comma separated values.
     // Then populate the candidate std::vector.
-    std::vector<std::string> rowcolumnvalue = splitstring(file_contents, ",");
-    int rank = rowcolumnvalue.size() >= 17 ? 3 : 2;
+    std::vector<std::string> valuerowcolumn = splitstring(file_contents, ",");
+    // 17 is the minimum number of givens for a 3X3 Sudoku with a unique solution.
+    int rank = valuerowcolumn.size() >= 17 ? 3 : 2;
 
     std::vector<std::vector<int>> givens = {};
     for (int i = 0; i < rank * rank; i++)
@@ -328,13 +350,11 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
         }
     }
 
-    std::cout << "rank = " << rank;
-
-    for (std::string rcv : rowcolumnvalue)
+    for (std::string vrc : valuerowcolumn)
     {
-        int row = rcv[0] - '0';
-        int col = rcv[1] - '0';
-        int val = rcv[2] - '0';
+        int val = vrc[0] - '0';
+        int row = vrc[1] - '0';
+        int col = vrc[2] - '0';
         if (row >= (int)givens.size() || col >= (int)givens[0].size()) {
             std::cout << "Invalid row and column csv " << row << col << std::endl;
             continue;
@@ -342,14 +362,19 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
         givens[row][col] = val;
     }
 
-    int mid = rank % 2 == 0 ? rank * rank / 2 - 1 : rank * rank / 2;
-    int end = rank * rank - 1;
-    std::map<int, std::pair<Point, Point>> houses = {
-        {0, std::make_pair<Point, Point>({.row = 0, .col = 0}, {.row = mid, .col = mid})},
-        {1, std::make_pair<Point, Point>({.row = 0, .col = mid + 1}, {.row = mid, .col = end})},
-        {2, std::make_pair<Point, Point>({.row = mid + 1, .col = 0}, {.row = end, .col = mid})},
-        {3, std::make_pair<Point, Point>({.row = mid + 1, .col = mid + 1}, {.row = end, .col = end})}
-    };
+    std::map<int, std::pair<Point, Point>> houses;
+    int house_nr = 0;
+    while (house_nr < rank * rank) {
+        int row = house_nr;
+        int col = 0;
+        while (col < rank * rank) {
+            Point top_left = Point {.row = row, .col = col};
+            Point bottom_right = Point {.row = row + rank - 1, .col = col + rank - 1};
+            houses.insert({house_nr, std::make_pair<Point, Point>(std::move(top_left), std::move(bottom_right)) });
+            house_nr ++;
+            col += rank;
+        }
+    }
 
     return std::make_unique<ParsedSudoku>(
         ParsedSudoku(sudoku_id, problem_file_path, file_contents, rank, std::move(givens),
@@ -384,8 +409,13 @@ public:
 private:
     class SudokuStepState {
         public:
+            std::vector<std::vector<int>>& get_assignments() {
+                return assignments;
+            }
+
             void Add(uint32_t value) {
                CellCandidate* cell = pq.top();
+               std::cout<< "Assigning " << value << " to " << "[" << cell->row << ", " << cell->col << "]" << std::endl;
                assignments[cell->row][cell->col] = value;
                UpdateAdjacentHouses(value);
                pq.pop();
@@ -416,59 +446,29 @@ private:
                     CellCandidate* cell = &it->second;
                     pq.push(cell);
                 }
-                std::copy(sudoku->get_givens().begin(), sudoku->get_givens().end(), std::back_inserter(this->assignments));
+                std::cout << "Printing Givens " << " size is " << sudoku->get_givens().size() << " columns is " <<  sudoku->get_givens()[0].size() << std::endl;
+                for (uint32_t i = 0; i < sudoku->get_givens().size(); i++) {
+                    this->assignments.push_back({});
+                    for (auto j = 0; j < sudoku->get_givens()[0].size(); j++) {
+                        this->assignments[i].push_back(sudoku->get_givens()[i][j]);
+                    }
+                }
                 sudoku_ptr = sudoku;
             }
 
             SudokuStepState() = delete;
 
         private:
-            std::set<Point> get_adjacent_points(CellCandidate& cell) {
-                std::set<Point> adj_cols, adj_rows, adj_houses;
-                int N = (int) assignments.size();
+            std::set<Point> get_adjacent_points(CellCandidate& cell);
+            void UndoUpdateToAdjacentHouses(int value_to_be_readded);
+            void UpdateAdjacentHouses(uint32_t value);
 
-                for (int col = 0; col < N; col ++) {
-                    adj_cols.insert(Point{.row = cell.row, .col = col});
-                }
-                for (int row = 0; row < N; row ++) {
-                    adj_rows.insert(Point{.row = row, .col = cell.col});
-                }
-                adj_houses = points_in_house(cell.row, cell.col, sudoku_ptr->get_houses());
-
-                std::set<Point> adj_points;
-                std::copy(adj_rows.begin(), adj_rows.end(), std::inserter(adj_points, std::next(adj_points.begin())));
-                std::copy(adj_cols.begin(), adj_cols.end(), std::inserter(adj_points, std::next(adj_points.begin())));
-                std::copy(adj_houses.begin(), adj_houses.end(), std::inserter(adj_points, std::next(adj_points.begin())));
-                return adj_points;
-            }
-
-            void UndoUpdateToAdjacentHouses(int value_to_be_readded) {
-                for (CellCandidate* cell : cells_updated) {
-                    cell->candidates.insert(value_to_be_readded);
-                }
-                cells_updated.clear();
-            }
-
-            void UpdateAdjacentHouses(uint32_t value) {
-                CellCandidate& cell = *pq.top();
-                std::set<Point> adj_points = get_adjacent_points(cell);
-
-                for (auto& update_coord : adj_points) {
-                    auto& update_cell = pq_map[update_coord];
-                    // Assigned value was a candidate for this cell.
-                    if (update_cell.candidates.contains(value)) {
-                        update_cell.candidates.erase(value);
-                        cells_updated.insert(&update_cell);
-                    }
-                }
-            }
-
-            // Authoritative ownder of all CellCandidate(s).
+            // Authoritative owner of all CellCandidate(s).
             std::map<Point, CellCandidate> pq_map;
             std::priority_queue<CellCandidate*> pq;
             // Current assignments to the coordinates of the sudoku.
             std::vector<std::vector<int>> assignments;
-            // For any step, only
+            // For any step, keeps track of the cells updated by a new cell assignment.
             std::set<CellCandidate*> cells_updated;
             ParsedSudoku* sudoku_ptr;
     };
@@ -480,31 +480,12 @@ private:
     // In the future we can also consider other cells which are close to the most optimal,
     // let us say, top 10 cells or so and their average difficulty. This would slow down the
     // sudoku program by a factor though.
-    void SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solution) {
-        CellCandidate* optimal_next_cell = state->OptimalNextCell();
-        if (optimal_next_cell == nullptr) {
-            solution.assignments = state->get_cell_assignments();
-            found_solutions.push_back(solution);
-            return;
-        }
-
-        // Pick a candidate coloring for the cell.
-        std::set<int> visited = {};
-        for (int picked_candidate : optimal_next_cell->candidates) {
-            if (visited.contains(picked_candidate)) {
-                continue;
-            }
-            visited.insert(picked_candidate);
-            state->Add(picked_candidate);
-            SolveSudokuAndRecurse(state, solution);
-            // Undo previous update.
-            state->Subtract(optimal_next_cell, picked_candidate);
-        }
-    }
+    void SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solution);
 
     void BuildInitialSudokuState() {
         auto cell_candidates = ComputeInitialCandidates(sudoku->get_rank(), sudoku->get_givens(), sudoku->get_houses());
         solver_state = std::make_unique<SudokuStepState>(std::move(cell_candidates), sudoku.get());
+        printf("built initial sudoku state\n");
     }
 
     void WriteSudokuSolutionToFile() {}
@@ -515,12 +496,87 @@ private:
     std::vector<SudokuSolution> found_solutions;
 };
 
+std::set<Point> Solver::SudokuStepState::get_adjacent_points(CellCandidate& cell) {
+    std::set<Point> adj_cols, adj_rows, adj_houses;
+    int N = (int) assignments.size();
+
+    for (int col = 0; col < N; col ++) {
+        adj_cols.insert(Point{.row = cell.row, .col = col});
+    }
+    for (int row = 0; row < N; row ++) {
+        adj_rows.insert(Point{.row = row, .col = cell.col});
+    }
+    adj_houses = points_in_house(cell.row, cell.col, sudoku_ptr->get_houses());
+
+    std::set<Point> adj_points;
+    adj_points.insert(adj_rows.begin(), adj_rows.end());
+    adj_points.insert(adj_cols.begin(), adj_cols.end());
+    adj_points.insert(adj_houses.begin(), adj_houses.end());
+    return adj_points;
+}
+
+void Solver::SudokuStepState::UndoUpdateToAdjacentHouses(int value_to_be_readded) {
+    for (CellCandidate* cell : cells_updated) {
+        cell->candidates.insert(value_to_be_readded);
+    }
+    cells_updated.clear();
+}
+
+void Solver::SudokuStepState::UpdateAdjacentHouses(uint32_t value) {
+    CellCandidate& cell = *pq.top();
+    //std::cout << "getting adjacent points for " << cell.row << " " << cell.col << std::endl;
+    std::set<Point> adj_points = get_adjacent_points(cell);
+    //std::cout << "got adjacent points";
+    for (auto& update_coord : adj_points) {
+        auto& update_cell = pq_map[update_coord];
+        // Assigned value was a candidate for this cell.
+        if (update_cell.candidates.contains(value)) {
+            update_cell.candidates.erase(value);
+            cells_updated.insert(&update_cell);
+        }
+    }
+}
+
+void Solver::SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solution) {
+    CellCandidate* optimal_next_cell = state->OptimalNextCell();
+    if (optimal_next_cell == nullptr) {
+        solution.assignments = state->get_cell_assignments();
+        for (uint32_t i = 0; i < solution.assignments.size(); i++) {
+            for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
+                printf("%d\t", solution.assignments[i][j]);
+            }
+            printf("\n");
+        }
+        found_solutions.push_back(solution);
+        return;
+    }
+
+    if (optimal_next_cell->candidates.size() == 0) {
+        // We made an incorrect assignment.
+        std::cout<< "No options for cell " << optimal_next_cell->row << " " << optimal_next_cell->col << std::endl;
+        return;
+    }
+
+    print_sudoku_assignments(state->get_assignments());
+
+    // Pick a candidate coloring for the cell.
+    std::set<int> candidates_to_pick = std::set<int>(optimal_next_cell->candidates);
+    for (int picked_candidate : candidates_to_pick) {
+        // std::cout << "Picked candidate " << picked_candidate << std::endl;
+        state->Add(picked_candidate);
+        CellCandidate* copy = optimal_next_cell;
+        SolveSudokuAndRecurse(state, solution);
+        // Undo previous update.
+        state->Subtract(copy, picked_candidate);
+    }
+}
+
 class SolveSudokusInFolder
 {
 public:
     void AnalyseSudokus(std::string input_folder, std::string output_folder)
     {
-        std::vector<fs::path> sudoku_pathnames = GetSudokuPathnames(input_folder);
+        std::vector<fs::path> sudoku_pathnames = ReadDirectory(input_folder);
         std::vector<std::unique_ptr<ParsedSudoku>> parsed_sudokus = ParseSudokuProblems(sudoku_pathnames);
         std::cout << "starting threads parsed_sudokus.size() = " << parsed_sudokus.size() << std::endl;
 
@@ -528,13 +584,14 @@ public:
         // as a CSV file into the output folder.
         std::vector<std::thread> sudoku_threads;
         std::vector<Solver> solvers;
-        for (unsigned int i = 0; i < parsed_sudokus.size(); i++)
-        {
-            solvers.emplace_back(std::move(parsed_sudokus[i]), output_folder);
-            std::thread new_thread = std::thread(&Solver::SolveSudoku, &solvers[i]);
-            new_thread.join();
+//        for (unsigned int i = 0; i < parsed_sudokus.size(); i++)
+//        {
+        solvers.push_back(Solver(std::move(parsed_sudokus[0]), fs::path(output_folder)));
+            //std::thread new_thread = std::thread(&Solver::SolveSudoku, &solvers[i]);
+            //new_thread.join();
             // sudoku_threads.push_back(std::move(new_thread));
-        }
+//        }
+        solvers[0].SolveSudoku();
         /*            std::this_thread::sleep_for(std::chrono::seconds(5));
                     for (auto& thread : sudoku_threads) {
                         while (!thread.joinable()) {
@@ -543,21 +600,10 @@ public:
                         thread.join();
                     }*/
 
-        std::cout << "threads joined parsed_sudokus.size() = " << parsed_sudokus.size() << std::endl;
+        std::cout << "threads joined" << std::endl;
     }
 
 private:
-    std::vector<fs::path> GetSudokuPathnames(std::string folder_path)
-    {
-        // std::string docPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        std::optional<std::vector<fs::path>> files = ReadDirectory(folder_path);
-        if (files != std::nullopt)
-        {
-            return *files;
-        }
-        return {};
-    }
-
     std::vector<std::unique_ptr<ParsedSudoku>> ParseSudokuProblems(std::vector<fs::path> &sudoku_problem_files)
     {
         std::vector<std::unique_ptr<ParsedSudoku>> parsed_sudokus = {};
