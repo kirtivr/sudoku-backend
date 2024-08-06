@@ -69,31 +69,31 @@ std::vector<fs::path> ReadDirectory(std::string directory_path)
 
 typedef struct StepDifficulty
 {
-    int sudoku_id;
-    int num_of_easy_cells;
-    int candidates_per_easy_cell;
-    int average_number_of_candidates_per_cell;
+    uint32_t sudoku_id;
+    uint32_t num_of_easy_cells;
+    uint32_t candidates_per_easy_cell;
+    uint32_t average_number_of_candidates_per_cell;
 } StepDifficulty;
 
 typedef struct Difficulty
 {
-    int sudoku_id;
+    uint32_t sudoku_id;
     std::vector<StepDifficulty> steps_to_success;
     std::vector<StepDifficulty> steps_to_failure;
 } Difficulty;
 
 typedef struct SudokuSolution
 {
-    int sudoku_id;
-    std::vector<std::vector<int>> assignments;
+    uint32_t sudoku_id;
+    std::vector<std::vector<uint32_t>> assignments;
     Difficulty analysed_difficulty;
 } SudokuSolution;
 
 typedef struct CellCandidate {
-    int row; // 0 - 3/8.
-    int col; // 0 - 3/8.
-    int house; // 0 - 3/8.
-    std::set<int> candidates;
+    uint32_t row; // 0 - 3/8.
+    uint32_t col; // 0 - 3/8.
+    uint32_t house; // 0 - 3/8.
+    std::set<uint32_t> candidates;
 
     bool operator==(const CellCandidate& rhs) const {
         return candidates.size() == rhs.candidates.size();
@@ -109,8 +109,8 @@ typedef struct CellCandidate {
 } CellCandidate;
 
 typedef struct Point {
-  int row;
-  int col;
+  uint32_t row;
+  uint32_t col;
 
   bool operator==(const Point& rhs) const {
     return this->row == rhs.row && this->col == rhs.col;
@@ -134,7 +134,7 @@ std::ostream &operator<<(std::ostream &os, const Point &p)
     return os;
 }
 
-void print_sudoku_assignments(std::vector<std::vector<int>>& assignments) {
+void print_sudoku_assignments(std::vector<std::vector<uint32_t>>& assignments) {
     for (uint32_t row = 0; row < assignments.size(); row ++) {
         for (uint32_t col = 0; col < assignments[0].size(); col ++) {
             printf("%d\t", assignments[row][col]);
@@ -143,8 +143,8 @@ void print_sudoku_assignments(std::vector<std::vector<int>>& assignments) {
     }
 }
 
-std::set<int> givens_in_row(int row, std::vector<std::vector<int>> givens) {
-    std::set<int> givens_in_row {};
+std::set<uint32_t> givens_in_row(uint32_t row, std::vector<std::vector<uint32_t>> givens) {
+    std::set<uint32_t> givens_in_row {};
     for (uint32_t col = 0; col < givens[0].size(); col ++) {
         if (givens[row][col]) {
             givens_in_row.insert(givens[row][col]);
@@ -153,8 +153,8 @@ std::set<int> givens_in_row(int row, std::vector<std::vector<int>> givens) {
     return givens_in_row;
 }
 
-std::set<int> givens_in_col(int col, std::vector<std::vector<int>> givens) {
-    std::set<int> givens_in_col {};
+std::set<uint32_t> givens_in_col(uint32_t col, std::vector<std::vector<uint32_t>> givens) {
+    std::set<uint32_t> givens_in_col {};
     for (uint32_t row = 0; row < givens.size(); row ++) {
         if (givens[row][col]) {
             givens_in_col.insert(givens[row][col]);
@@ -163,7 +163,7 @@ std::set<int> givens_in_col(int col, std::vector<std::vector<int>> givens) {
     return givens_in_col;
 }
 
-bool is_in_bounding_house(int row, int col, Point tl, Point br) {
+bool is_in_bounding_house(uint32_t row, uint32_t col, Point tl, Point br) {
     if (row >= tl.row && col >= tl.col) {
     if (row <= br.row && col <= br.col) {
         return true;
@@ -172,7 +172,7 @@ bool is_in_bounding_house(int row, int col, Point tl, Point br) {
     return false;
 }
 
-int get_house_for_cell(int row, int col, std::map<int, std::pair<Point, Point>> houses) {
+uint32_t get_house_for_cell(uint32_t row, uint32_t col, std::map<uint32_t, std::pair<Point, Point>> houses) {
     for (auto it = houses.begin(); it != houses.end(); it++) {
     if (is_in_bounding_house(row, col, it->second.first, it->second.second)) {
         return it->first;
@@ -181,28 +181,28 @@ int get_house_for_cell(int row, int col, std::map<int, std::pair<Point, Point>> 
     return -1;
 }
 
-std::set<Point> points_in_house(int row, int col, std::map<int, std::pair<Point, Point>> houses) {
+std::set<Point> points_in_house(uint32_t row, uint32_t col, std::map<uint32_t, std::pair<Point, Point>> houses) {
     /*for (auto& x : houses) {
         std::cout << "house " << x.first << " co-ordinates, top left: " << x.second.first << " bottom right: " << x.second.second << std::endl;
     }*/
-    int house = get_house_for_cell(row, col, houses);
+    uint32_t house = get_house_for_cell(row, col, houses);
     //std::cout << "house for cell " << row << " " << col << " is " << house << std::endl;
     auto& [top_left, bottom_right] = houses[house];
     //std::cout << "top left " << top_left << " br " << bottom_right << std::endl;
 
     std::set<Point> points;
-    for (int i = top_left.row; i <= bottom_right.row; i++) {
-    for (int j = top_left.col; j <= bottom_right.col; j++) {
+    for (uint32_t i = top_left.row; i <= bottom_right.row; i++) {
+    for (uint32_t j = top_left.col; j <= bottom_right.col; j++) {
         points.insert(Point{.row = i, .col = j});
     }}
 
     return points;
 }
 
-std::set<int> givens_in_house(int row, int col, std::vector<std::vector<int>> givens, std::map<int, std::pair<Point, Point>> houses) {
+std::set<uint32_t> givens_in_house(uint32_t row, uint32_t col, std::vector<std::vector<uint32_t>> givens, std::map<uint32_t, std::pair<Point, Point>> houses) {
     auto points_house = points_in_house(row, col, houses);
 
-    std::set<int> givens_in_house;
+    std::set<uint32_t> givens_in_house;
     for (uint32_t i = 0; i < points_house.size(); i++) {
         for (auto& p : points_house) {
             if (givens[p.row][p.col]) {
@@ -213,8 +213,8 @@ std::set<int> givens_in_house(int row, int col, std::vector<std::vector<int>> gi
     return givens_in_house;
 }
 
-CellCandidate CreateCellCandidate(int row, int col, std::set<int> possibles, std::map<int, std::pair<Point, Point>> houses) {
-    int house = get_house_for_cell(row, col, houses);
+CellCandidate CreateCellCandidate(uint32_t row, uint32_t col, std::set<uint32_t> possibles, std::map<uint32_t, std::pair<Point, Point>> houses) {
+    uint32_t house = get_house_for_cell(row, col, houses);
     return {
         .row = row,
         .col = col,
@@ -224,28 +224,28 @@ CellCandidate CreateCellCandidate(int row, int col, std::set<int> possibles, std
 }
 
 std::map<Point, CellCandidate>
-ComputeInitialCandidates(int rank,
-                         std::vector<std::vector<int>> givens,
-                         std::map<int, std::pair<Point, Point>> houses) {
-    int rows = rank * rank;
-    int cols = rank * rank;
+ComputeInitialCandidates(uint32_t rank,
+                         std::vector<std::vector<uint32_t>> givens,
+                         std::map<uint32_t, std::pair<Point, Point>> houses) {
+    uint32_t rows = rank * rank;
+    uint32_t cols = rank * rank;
     std::map<Point, CellCandidate> candidates;
-    std::set<int> possible_assignments = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    std::set<uint32_t> possible_assignments = {1, 2, 3, 4, 5, 6, 7, 8, 9};
 
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
+    for (uint32_t i = 0; i < rows; i++) {
+        for (uint32_t j = 0; j < cols; j++) {
             if (givens[i][j] != 0) {
                 // If a value is given for a cell, we should not have to consider the candidates for that cell.
-                // candidates.insert({Point {.row = i, .col = j}, CreateCellCandidate(i, j, std::set<int>{givens[i][j]}, houses)});
+                // candidates.insert({Point {.row = i, .col = j}, CreateCellCandidate(i, j, std::set<uint32_t>{givens[i][j]}, houses)});
                 continue;
             }
-            std::set<int> all_givens = givens_in_row(i, givens);
-            std::set<int> givens_col = givens_in_col(i, givens);
+            std::set<uint32_t> all_givens = givens_in_row(i, givens);
+            std::set<uint32_t> givens_col = givens_in_col(i, givens);
             all_givens.insert(givens_col.begin(), givens_col.end());
-            std::set<int> givens_house = givens_in_house(i, j, givens, houses);
+            std::set<uint32_t> givens_house = givens_in_house(i, j, givens, houses);
             all_givens.insert(givens_house.begin(), givens_house.end());
 
-            std::set<int> possibles;
+            std::set<uint32_t> possibles;
             std::set_difference(possible_assignments.begin(), possible_assignments.end(),
                                 all_givens.begin(), all_givens.end(), std::inserter(possibles, possibles.end()));
 
@@ -261,7 +261,7 @@ ComputeInitialCandidates(int rank,
 class ParsedSudoku
 {
 public:
-    int get_sudoku_id()
+    uint32_t get_sudoku_id()
     {
         return sudoku_id;
     }
@@ -273,15 +273,15 @@ public:
     {
         return compressed_repr;
     }
-    int get_rank()
+    uint32_t get_rank()
     {
         return rank;
     }
-    std::vector<std::vector<int>> get_givens()
+    std::vector<std::vector<uint32_t>> get_givens()
     {
         return givens;
     }
-    std::map<int, std::pair<Point, Point>> get_houses()
+    std::map<uint32_t, std::pair<Point, Point>> get_houses()
     {
         return houses;
     }
@@ -293,10 +293,10 @@ public:
 
 private:
     ParsedSudoku(
-        int sudoku_id, std::string problem_file_path,
-        std::string compressed_repr, int rank,
-        std::vector<std::vector<int>> givens,
-        std::map<int, std::pair<Point, Point>> houses)
+        uint32_t sudoku_id, std::string problem_file_path,
+        std::string compressed_repr, uint32_t rank,
+        std::vector<std::vector<uint32_t>> givens,
+        std::map<uint32_t, std::pair<Point, Point>> houses)
     {
         this->sudoku_id = sudoku_id;
         this->problem_file_path = problem_file_path;
@@ -306,12 +306,12 @@ private:
         this->houses = std::move(houses);
     }
 
-    int sudoku_id;
+    uint32_t sudoku_id;
     std::string problem_file_path;
     std::string compressed_repr;
-    int rank;
-    std::map<int, std::pair<Point, Point>> houses;
-    std::vector<std::vector<int>> givens;
+    uint32_t rank;
+    std::map<uint32_t, std::pair<Point, Point>> houses;
+    std::vector<std::vector<uint32_t>> givens;
 };
 
 // Factory to generate a fully initialized ParsedSudoku.
@@ -319,7 +319,7 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
 {
     std::string file_contents;
     std::ifstream sudoku_fs(problem_file_path);
-    int sudoku_id;
+    uint32_t sudoku_id;
     if (sudoku_fs.is_open())
     {
         std::getline(sudoku_fs, file_contents);
@@ -338,13 +338,13 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
     // Then populate the candidate std::vector.
     std::vector<std::string> valuerowcolumn = splitstring(file_contents, ",");
     // 17 is the minimum number of givens for a 3X3 Sudoku with a unique solution.
-    int rank = valuerowcolumn.size() >= 17 ? 3 : 2;
+    uint32_t rank = valuerowcolumn.size() >= 17 ? 3 : 2;
 
-    std::vector<std::vector<int>> givens = {};
-    for (int i = 0; i < rank * rank; i++)
+    std::vector<std::vector<uint32_t>> givens = {};
+    for (uint32_t i = 0; i < rank * rank; i++)
     {
         givens.push_back({});
-        for (int j = 0; j < rank * rank; j++)
+        for (uint32_t j = 0; j < rank * rank; j++)
         {
             givens[i].push_back(0);
         }
@@ -352,21 +352,21 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
 
     for (std::string vrc : valuerowcolumn)
     {
-        int val = vrc[0] - '0';
-        int row = vrc[1] - '0';
-        int col = vrc[2] - '0';
-        if (row >= (int)givens.size() || col >= (int)givens[0].size()) {
+        uint32_t val = vrc[0] - '0';
+        uint32_t row = vrc[1] - '0';
+        uint32_t col = vrc[2] - '0';
+        if (row >= givens.size() || col >= givens[0].size()) {
             std::cout << "Invalid row and column csv " << row << col << std::endl;
             continue;
         }
         givens[row][col] = val;
     }
 
-    std::map<int, std::pair<Point, Point>> houses;
-    int house_nr = 0;
+    std::map<uint32_t, std::pair<Point, Point>> houses;
+    uint32_t house_nr = 0;
     while (house_nr < rank * rank) {
-        int row = house_nr;
-        int col = 0;
+        uint32_t row = house_nr;
+        uint32_t col = 0;
         while (col < rank * rank) {
             Point top_left = Point {.row = row, .col = col};
             Point bottom_right = Point {.row = row + rank - 1, .col = col + rank - 1};
@@ -409,20 +409,19 @@ public:
 private:
     class SudokuStepState {
         public:
-            std::vector<std::vector<int>>& get_assignments() {
+            std::vector<std::vector<uint32_t>>& get_assignments() {
                 return assignments;
             }
 
             void Add(uint32_t value) {
                CellCandidate* cell = pq.top();
-               std::cout<< "Assigning " << value << " to " << "[" << cell->row << ", " << cell->col << "]" << std::endl;
                assignments[cell->row][cell->col] = value;
-               UpdateAdjacentHouses(value);
+               UpdateAdjacentHouses(cell, value);
                pq.pop();
             }
 
             void Subtract(CellCandidate* cell, uint32_t value) {
-                UndoUpdateToAdjacentHouses(value);
+                UndoUpdateToAdjacentHouses(cell, value);
                 // The priority queue should be updated after the adjacent cells have been updated.
                 pq.push(cell);
                 assignments[cell->row][cell->col] = 0;
@@ -435,7 +434,7 @@ private:
                 return pq.top();
             }
 
-            std::vector<std::vector<int>> get_cell_assignments() {
+            std::vector<std::vector<uint32_t>> get_cell_assignments() {
                 return assignments;
             }
 
@@ -446,10 +445,10 @@ private:
                     CellCandidate* cell = &it->second;
                     pq.push(cell);
                 }
-                std::cout << "Printing Givens " << " size is " << sudoku->get_givens().size() << " columns is " <<  sudoku->get_givens()[0].size() << std::endl;
+                // std::cout << "Printing Givens " << " size is " << sudoku->get_givens().size() << " columns is " <<  sudoku->get_givens()[0].size() << std::endl;
                 for (uint32_t i = 0; i < sudoku->get_givens().size(); i++) {
                     this->assignments.push_back({});
-                    for (auto j = 0; j < sudoku->get_givens()[0].size(); j++) {
+                    for (uint32_t j = 0; j < sudoku->get_givens()[0].size(); j++) {
                         this->assignments[i].push_back(sudoku->get_givens()[i][j]);
                     }
                 }
@@ -460,16 +459,32 @@ private:
 
         private:
             std::set<Point> get_adjacent_points(CellCandidate& cell);
-            void UndoUpdateToAdjacentHouses(int value_to_be_readded);
-            void UpdateAdjacentHouses(uint32_t value);
+            void UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded);
+            void UpdateAdjacentHouses(CellCandidate* cell, uint32_t value);
 
             // Authoritative owner of all CellCandidate(s).
             std::map<Point, CellCandidate> pq_map;
             std::priority_queue<CellCandidate*> pq;
             // Current assignments to the coordinates of the sudoku.
-            std::vector<std::vector<int>> assignments;
-            // For any step, keeps track of the cells updated by a new cell assignment.
-            std::set<CellCandidate*> cells_updated;
+            std::vector<std::vector<uint32_t>> assignments;
+
+            typedef struct Update {
+                uint32_t value;
+                Point updated;
+                bool operator==(const Update& rhs) const {
+                    return this->value == rhs.value;
+                }
+                bool operator>(const Update& rhs) const {
+                    return this->value > rhs.value;
+                }
+                bool operator<(const Update& rhs) const {
+                    return rhs > *this && *this != rhs;
+                }
+            } Update;
+            // For any step, keeps track of the cells updated by a new assignment.
+            // Also keep track of who updated which neighbor, and what that update was,
+            // so we do not have unexpected updates.
+            std::map<Point, std::set<Update>> revert_updates;
             ParsedSudoku* sudoku_ptr;
     };
 
@@ -485,7 +500,7 @@ private:
     void BuildInitialSudokuState() {
         auto cell_candidates = ComputeInitialCandidates(sudoku->get_rank(), sudoku->get_givens(), sudoku->get_houses());
         solver_state = std::make_unique<SudokuStepState>(std::move(cell_candidates), sudoku.get());
-        printf("built initial sudoku state\n");
+//        printf("built initial sudoku state\n");
     }
 
     void WriteSudokuSolutionToFile() {}
@@ -496,43 +511,63 @@ private:
     std::vector<SudokuSolution> found_solutions;
 };
 
-std::set<Point> Solver::SudokuStepState::get_adjacent_points(CellCandidate& cell) {
-    std::set<Point> adj_cols, adj_rows, adj_houses;
-    int N = (int) assignments.size();
-
-    for (int col = 0; col < N; col ++) {
-        adj_cols.insert(Point{.row = cell.row, .col = col});
+void Solver::SudokuStepState::UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded) {
+    Point cell_coord = Point({.row = cell->row, .col = cell->col});
+    auto it = revert_updates.find(cell_coord);
+    if (it != revert_updates.end()) {
+        std::cout<< "found cell coordinates" << std::endl;
+        auto& [_, re_add_set] = *it;
+        // What were the updates made by cell at cell_coord, and to which points.
+        for (auto& [x_value, x_coord] : re_add_set) {
+            std::cout<< " value" << x_value  << " revert value " << value_to_be_readded << " coord " << x_coord << std::endl;
+            CellCandidate& x_cell = pq_map[x_coord];
+            if (x_value != value_to_be_readded) {
+                std::cout << "ERROR: Unexpected, changed value " << x_value << " should match " << value_to_be_readded << std::endl;
+            }
+            x_cell.candidates.insert(value_to_be_readded);
+        }
     }
-    for (int row = 0; row < N; row ++) {
-        adj_rows.insert(Point{.row = row, .col = cell.col});
-    }
-    adj_houses = points_in_house(cell.row, cell.col, sudoku_ptr->get_houses());
-
-    std::set<Point> adj_points;
-    adj_points.insert(adj_rows.begin(), adj_rows.end());
-    adj_points.insert(adj_cols.begin(), adj_cols.end());
-    adj_points.insert(adj_houses.begin(), adj_houses.end());
-    return adj_points;
+    revert_updates.erase(cell_coord);
 }
 
-void Solver::SudokuStepState::UndoUpdateToAdjacentHouses(int value_to_be_readded) {
-    for (CellCandidate* cell : cells_updated) {
-        cell->candidates.insert(value_to_be_readded);
+void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t value) {
+    Point cell_coord = Point{.row = cell->row, .col = cell->col};
+    if (revert_updates.contains(cell_coord)) {
+        std::cout << "ERROR: Cell at " << cell_coord << " has already been traversed in DFS" << std::endl;
     }
-    cells_updated.clear();
-}
 
-void Solver::SudokuStepState::UpdateAdjacentHouses(uint32_t value) {
-    CellCandidate& cell = *pq.top();
-    //std::cout << "getting adjacent points for " << cell.row << " " << cell.col << std::endl;
-    std::set<Point> adj_points = get_adjacent_points(cell);
-    //std::cout << "got adjacent points";
+    // This can probably be pre-computed.
+    std::set<Point> adj_points = get_adjacent_points(*cell);
+    //auto it = revert_updates.end();
+
     for (auto& update_coord : adj_points) {
         auto& update_cell = pq_map[update_coord];
         // Assigned value was a candidate for this cell.
         if (update_cell.candidates.contains(value)) {
             update_cell.candidates.erase(value);
-            cells_updated.insert(&update_cell);
+            Update to_insert = Update {.value = value, .updated = update_coord};
+            auto it = revert_updates.find(cell_coord);
+            // Add print statements here.
+            if (it == revert_updates.end()) {
+               it = revert_updates.insert(revert_updates.end(), {cell_coord, std::set<Update>({to_insert})});
+            } else {
+                auto& [_, update_set] = *it;
+                update_set.insert(to_insert);
+            }
+            /*
+            // Updates that have been applied to a cell may be more than one.
+            auto it = revert_updates.find(update_coord);
+            if (it != revert_updates.end()) {
+                auto& [_, re_add_set] = *it;
+                // No other cell update with the same value has occured for this update_cell.
+                // This is a trick to avoid an O(n) cost here. Verify that it really works.
+                    revert_updates.insert({update_coord, std::set<uint32_t>{value}});
+                if (!re_add_set.contains(Update(.value = value, .update_source = Point()))) {
+                }
+            } else {
+                revert_updates.insert({update_coord, std::set<uint32_t>{value}});
+            }
+            */
         }
     }
 }
@@ -548,6 +583,7 @@ void Solver::SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solut
             printf("\n");
         }
         found_solutions.push_back(solution);
+        printf("\n\n");
         return;
     }
 
@@ -557,18 +593,46 @@ void Solver::SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solut
         return;
     }
 
+    if (state->get_cell_assignments()[optimal_next_cell->row][optimal_next_cell->col] != 0) {
+        std::cout<< "EEEEEEEEERRRRRRRRRRRRROOOOOOOOOOORRRRRRRRRRRRRRR this cell is assigned, already" << std::endl;
+    }
+
     print_sudoku_assignments(state->get_assignments());
 
     // Pick a candidate coloring for the cell.
-    std::set<int> candidates_to_pick = std::set<int>(optimal_next_cell->candidates);
-    for (int picked_candidate : candidates_to_pick) {
-        // std::cout << "Picked candidate " << picked_candidate << std::endl;
+    std::set<uint32_t> candidates_to_pick = std::set<uint32_t>(optimal_next_cell->candidates);
+    std::cout<< "\nCandidates for [" << optimal_next_cell->row << ", " << optimal_next_cell->col << "]" << " are ";
+    for (uint32_t c : candidates_to_pick) {
+        std::cout << c << ",";
+    }
+    std::cout << std::endl;
+    for (uint32_t picked_candidate : candidates_to_pick) {
+        // std::cout<< "Assigning " << picked_candidate << " to " << "[" << optimal_next_cell->row << ", " << optimal_next_cell->col << "]" << std::endl;
         state->Add(picked_candidate);
         CellCandidate* copy = optimal_next_cell;
         SolveSudokuAndRecurse(state, solution);
         // Undo previous update.
         state->Subtract(copy, picked_candidate);
     }
+}
+
+std::set<Point> Solver::SudokuStepState::get_adjacent_points(CellCandidate& cell) {
+    std::set<Point> adj_cols, adj_rows, adj_houses;
+    uint32_t N =  assignments.size();
+
+    for (uint32_t col = 0; col < N; col ++) {
+        adj_cols.insert(Point{.row = cell.row, .col = col});
+    }
+    for (uint32_t row = 0; row < N; row ++) {
+        adj_rows.insert(Point{.row = row, .col = cell.col});
+    }
+    adj_houses = points_in_house(cell.row, cell.col, sudoku_ptr->get_houses());
+
+    std::set<Point> adj_points;
+    adj_points.insert(adj_rows.begin(), adj_rows.end());
+    adj_points.insert(adj_cols.begin(), adj_cols.end());
+    adj_points.insert(adj_houses.begin(), adj_houses.end());
+    return adj_points;
 }
 
 class SolveSudokusInFolder
@@ -584,7 +648,7 @@ public:
         // as a CSV file into the output folder.
         std::vector<std::thread> sudoku_threads;
         std::vector<Solver> solvers;
-//        for (unsigned int i = 0; i < parsed_sudokus.size(); i++)
+//        for (unsigned uint32_t i = 0; i < parsed_sudokus.size(); i++)
 //        {
         solvers.push_back(Solver(std::move(parsed_sudokus[0]), fs::path(output_folder)));
             //std::thread new_thread = std::thread(&Solver::SolveSudoku, &solvers[i]);
