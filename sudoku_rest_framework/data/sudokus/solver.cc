@@ -118,11 +118,11 @@ typedef struct Point {
 
   bool operator>(const Point& rhs) const {
     return this->row > rhs.row ||
-    (this->row == rhs.row && this->col >= rhs.col);
+    (this->row == rhs.row && this->col > rhs.col);
   }
 
   bool operator<(const Point& rhs) const {
-    return rhs > *this && *this != rhs;
+    return rhs > *this;
   }
  
   friend std::ostream &operator<<(std::ostream &os, const Point &p);
@@ -472,13 +472,13 @@ private:
                 uint32_t value;
                 Point updated;
                 bool operator==(const Update& rhs) const {
-                    return this->value == rhs.value;
+                    return this->value == rhs.value && this->updated == rhs.updated;
                 }
                 bool operator>(const Update& rhs) const {
-                    return this->value > rhs.value;
+                    return this->value > rhs.value || (this->value == rhs.value && this->updated > rhs.updated);
                 }
                 bool operator<(const Update& rhs) const {
-                    return rhs > *this && *this != rhs;
+                    return rhs > *this;
                 }
             } Update;
             // For any step, keeps track of the cells updated by a new assignment.
@@ -513,13 +513,13 @@ private:
 
 void Solver::SudokuStepState::UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded) {
     Point cell_coord = Point({.row = cell->row, .col = cell->col});
+    std::cout << "Reverting everything for " << cell_coord << std::endl;
     auto it = revert_updates.find(cell_coord);
     if (it != revert_updates.end()) {
-        std::cout<< "found cell coordinates" << std::endl;
         auto& [_, re_add_set] = *it;
         // What were the updates made by cell at cell_coord, and to which points.
         for (auto& [x_value, x_coord] : re_add_set) {
-            std::cout<< " value" << x_value  << " revert value " << value_to_be_readded << " coord " << x_coord << std::endl;
+            std::cout<< "CellCandidate " << cell_coord << " was reverted " << value_to_be_readded << " and adjacent cell " << x_coord << " was updated." << std::endl;
             CellCandidate& x_cell = pq_map[x_coord];
             if (x_value != value_to_be_readded) {
                 std::cout << "ERROR: Unexpected, changed value " << x_value << " should match " << value_to_be_readded << std::endl;
@@ -547,12 +547,20 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
             update_cell.candidates.erase(value);
             Update to_insert = Update {.value = value, .updated = update_coord};
             auto it = revert_updates.find(cell_coord);
+            std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " needs to be updated." << std::endl;
             // Add print statements here.
             if (it == revert_updates.end()) {
+                std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " was updated." << std::endl;
                it = revert_updates.insert(revert_updates.end(), {cell_coord, std::set<Update>({to_insert})});
             } else {
+                std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " was updated. it->key = " << it->first << std::endl;
                 auto& [_, update_set] = *it;
                 update_set.insert(to_insert);
+                std::cout << "CellCandidate update_set contains: " << std::endl;
+                for (auto& [val, u] : update_set) {
+                    std::cout << val << ", " << u << std::endl;
+                }
+                std::cout<< std::endl;
             }
             /*
             // Updates that have been applied to a cell may be more than one.
