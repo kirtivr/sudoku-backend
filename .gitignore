@@ -1,2 +1,4 @@
 sudoku_rest_framework/data/sudokus/do_not_gitinclude/
 sudoku_rest_framework/settings.py
+sudoku_rest_framework/data/sudokus/obj/
+*.o
