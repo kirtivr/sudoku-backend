@@ -141,6 +141,7 @@ void print_sudoku_assignments(std::vector<std::vector<uint32_t>>& assignments) {
         }
         printf("\n");
     }
+    printf("\n");
 }
 
 std::set<uint32_t> givens_in_row(uint32_t row, std::vector<std::vector<uint32_t>> givens) {
@@ -213,6 +214,14 @@ std::set<uint32_t> givens_in_house(uint32_t row, uint32_t col, std::vector<std::
     return givens_in_house;
 }
 
+template <typename T>
+void print_set(std::set<T> to_print) {
+    for (auto& x : to_print) {
+        std::cout << x << ", ";
+    }
+    std::cout << std::endl;
+}
+
 CellCandidate CreateCellCandidate(uint32_t row, uint32_t col, std::set<uint32_t> possibles, std::map<uint32_t, std::pair<Point, Point>> houses) {
     uint32_t house = get_house_for_cell(row, col, houses);
     return {
@@ -234,15 +243,22 @@ ComputeInitialCandidates(uint32_t rank,
 
     for (uint32_t i = 0; i < rows; i++) {
         for (uint32_t j = 0; j < cols; j++) {
+            //std::cout << "Computing candidates for [" << i << ", " << j << "]" << std::endl;
             if (givens[i][j] != 0) {
                 // If a value is given for a cell, we should not have to consider the candidates for that cell.
                 // candidates.insert({Point {.row = i, .col = j}, CreateCellCandidate(i, j, std::set<uint32_t>{givens[i][j]}, houses)});
                 continue;
             }
             std::set<uint32_t> all_givens = givens_in_row(i, givens);
-            std::set<uint32_t> givens_col = givens_in_col(i, givens);
+            //std::cout << "Givens in row are ";
+            //print_set(all_givens);
+            std::set<uint32_t> givens_col = givens_in_col(j, givens);
+            //std::cout << "Givens in column are ";
+            //print_set(givens_col);
             all_givens.insert(givens_col.begin(), givens_col.end());
             std::set<uint32_t> givens_house = givens_in_house(i, j, givens, houses);
+            //std::cout << "Givens in house are ";
+            //print_set(givens_house);
             all_givens.insert(givens_house.begin(), givens_house.end());
 
             std::set<uint32_t> possibles;
@@ -462,12 +478,6 @@ private:
             void UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded);
             void UpdateAdjacentHouses(CellCandidate* cell, uint32_t value);
 
-            // Authoritative owner of all CellCandidate(s).
-            std::map<Point, CellCandidate> pq_map;
-            std::priority_queue<CellCandidate*> pq;
-            // Current assignments to the coordinates of the sudoku.
-            std::vector<std::vector<uint32_t>> assignments;
-
             typedef struct Update {
                 uint32_t value;
                 Point updated;
@@ -486,6 +496,11 @@ private:
             // so we do not have unexpected updates.
             std::map<Point, std::set<Update>> revert_updates;
             ParsedSudoku* sudoku_ptr;
+            // Authoritative owner of all CellCandidate(s).
+            std::map<Point, CellCandidate> pq_map;
+            std::priority_queue<CellCandidate*> pq;
+            // Current assignments to the coordinates of the sudoku.
+            std::vector<std::vector<uint32_t>> assignments;
     };
 
     // TODO: Add and verify difficulty metrics.
@@ -500,7 +515,6 @@ private:
     void BuildInitialSudokuState() {
         auto cell_candidates = ComputeInitialCandidates(sudoku->get_rank(), sudoku->get_givens(), sudoku->get_houses());
         solver_state = std::make_unique<SudokuStepState>(std::move(cell_candidates), sudoku.get());
-//        printf("built initial sudoku state\n");
     }
 
     void WriteSudokuSolutionToFile() {}
@@ -513,13 +527,13 @@ private:
 
 void Solver::SudokuStepState::UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded) {
     Point cell_coord = Point({.row = cell->row, .col = cell->col});
-    std::cout << "Reverting everything for " << cell_coord << std::endl;
+    //std::cout << "Reverting everything for " << cell_coord << std::endl;
     auto it = revert_updates.find(cell_coord);
     if (it != revert_updates.end()) {
         auto& [_, re_add_set] = *it;
         // What were the updates made by cell at cell_coord, and to which points.
         for (auto& [x_value, x_coord] : re_add_set) {
-            std::cout<< "CellCandidate " << cell_coord << " was reverted " << value_to_be_readded << " and adjacent cell " << x_coord << " was updated." << std::endl;
+            //std::cout<< "CellCandidate " << cell_coord << " was reverted " << value_to_be_readded << " and adjacent cell " << x_coord << " was updated." << std::endl;
             CellCandidate& x_cell = pq_map[x_coord];
             if (x_value != value_to_be_readded) {
                 std::cout << "ERROR: Unexpected, changed value " << x_value << " should match " << value_to_be_readded << std::endl;
@@ -547,43 +561,35 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
             update_cell.candidates.erase(value);
             Update to_insert = Update {.value = value, .updated = update_coord};
             auto it = revert_updates.find(cell_coord);
-            std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " needs to be updated." << std::endl;
+            //std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " needs to be updated." << std::endl;
             // Add print statements here.
             if (it == revert_updates.end()) {
-                std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " was updated." << std::endl;
+                //std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " was updated." << std::endl;
                it = revert_updates.insert(revert_updates.end(), {cell_coord, std::set<Update>({to_insert})});
             } else {
-                std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " was updated. it->key = " << it->first << std::endl;
+                //std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " was updated. it->key = " << it->first << std::endl;
                 auto& [_, update_set] = *it;
                 update_set.insert(to_insert);
-                std::cout << "CellCandidate update_set contains: " << std::endl;
-                for (auto& [val, u] : update_set) {
-                    std::cout << val << ", " << u << std::endl;
-                }
-                std::cout<< std::endl;
-            }
-            /*
-            // Updates that have been applied to a cell may be more than one.
-            auto it = revert_updates.find(update_coord);
-            if (it != revert_updates.end()) {
-                auto& [_, re_add_set] = *it;
-                // No other cell update with the same value has occured for this update_cell.
-                // This is a trick to avoid an O(n) cost here. Verify that it really works.
-                    revert_updates.insert({update_coord, std::set<uint32_t>{value}});
-                if (!re_add_set.contains(Update(.value = value, .update_source = Point()))) {
-                }
-            } else {
-                revert_updates.insert({update_coord, std::set<uint32_t>{value}});
-            }
-            */
+            }            
         }
     }
+
+    /*auto it = revert_updates.find(cell_coord);
+    if (it != revert_updates.end()) {
+        std::cout << "CellCandidate update_set contains: " << std::endl;
+        auto& [_, update_set] = *it;
+        for (auto& [val, u] : update_set) {
+            std::cout << val << ", " << u << std::endl;
+        }
+        std::cout<< std::endl;
+    }*/
 }
 
 void Solver::SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solution) {
     CellCandidate* optimal_next_cell = state->OptimalNextCell();
     if (optimal_next_cell == nullptr) {
         solution.assignments = state->get_cell_assignments();
+        printf("Found solution!!\n");
         for (uint32_t i = 0; i < solution.assignments.size(); i++) {
             for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
                 printf("%d\t", solution.assignments[i][j]);
@@ -609,11 +615,11 @@ void Solver::SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solut
 
     // Pick a candidate coloring for the cell.
     std::set<uint32_t> candidates_to_pick = std::set<uint32_t>(optimal_next_cell->candidates);
-    std::cout<< "\nCandidates for [" << optimal_next_cell->row << ", " << optimal_next_cell->col << "]" << " are ";
+    /*std::cout<< "\nCandidates for [" << optimal_next_cell->row << ", " << optimal_next_cell->col << "]" << " are ";
     for (uint32_t c : candidates_to_pick) {
         std::cout << c << ",";
     }
-    std::cout << std::endl;
+    std::cout << std::endl;*/
     for (uint32_t picked_candidate : candidates_to_pick) {
         // std::cout<< "Assigning " << picked_candidate << " to " << "[" << optimal_next_cell->row << ", " << optimal_next_cell->col << "]" << std::endl;
         state->Add(picked_candidate);
