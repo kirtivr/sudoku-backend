@@ -431,8 +431,8 @@ public:
     // Runs in a single thread.
     void SolveSudoku() {
         std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-        SudokuSolution solution;
-        SolveSudokuAndRecurse(solver_state.get(), solution);
+        std::cout<< "Thread ID is " << std::this_thread::get_id() << std::endl;
+        SolveSudokuAndRecurse(solver_state.get(), found_solutions);
         std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
         std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
 
@@ -448,6 +448,8 @@ public:
                 printf("\n\n");
             } 
         }
+
+        bool result = WriteSolutionToOutputFile();
     }
 
     Solver(std::unique_ptr<ParsedSudoku> sudoku, fs::path output_folder)
@@ -572,6 +574,26 @@ private:
             std::vector<std::vector<uint32_t>> assignments;
     };
 
+    bool WriteSolutionToOutputFile() {
+        std::ofstream output_file;
+        fs::path out_file (std::to_string(sudoku->get_sudoku_id()) + ".csv");
+        fs::path output_path = solution_file_path / out_file;
+        output_file.open (output_path);
+
+        std::string output = "";
+        for (auto& solution : found_solutions) {
+            for (uint32_t i = 0; i < solution.assignments.size(); i++) {
+                    for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
+                        output = output + std::to_string(solution.assignments[i][j]);
+                    }
+                }
+            output_file << output << "\n";
+            output = "";
+        }
+        output_file.close();
+        return true;
+    }
+
     // TODO: Add and verify difficulty metrics.
     // This should be a combination of:
     // 1) Number of assignments already done
@@ -579,14 +601,12 @@ private:
     // In the future we can also consider other cells which are close to the most optimal,
     // let us say, top 10 cells or so and their average difficulty. This would slow down the
     // sudoku program by a factor though.
-    void SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solution);
+    void SolveSudokuAndRecurse(SudokuStepState* state, std::vector<SudokuSolution>& solutions);
 
     void BuildInitialSudokuState() {
         auto cell_candidates = ComputeInitialCandidates(sudoku->get_rank(), sudoku->get_givens(), sudoku->get_houses());
         solver_state = std::make_unique<SudokuStepState>(std::move(cell_candidates), sudoku.get());
     }
-
-    void WriteSudokuSolutionToFile() {}
 
     std::unique_ptr<ParsedSudoku> sudoku;
     fs::path solution_file_path;
@@ -654,11 +674,13 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
     }*/
 }
 
-void Solver::SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solution) {
+void Solver::SolveSudokuAndRecurse(SudokuStepState* state, std::vector<SudokuSolution>& solutions) {
     CellCandidate* optimal_next_cell = state->PopAndGetOptimalNextCell();
     if (optimal_next_cell == nullptr) {
-        //printf("found solution\n");
+        // printf("found solution\n");
+        SudokuSolution solution;
         solution.assignments = state->get_cell_assignments();
+        solutions.push_back(solution);
         return;
     }
     //printf("Next cell from heap is [%u, %u]\n", optimal_next_cell->row, optimal_next_cell->col);
@@ -690,7 +712,7 @@ void Solver::SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solut
         state->Add(optimal_next_cell, picked_candidate);
         //printf("[%u, %u]Entering recursion\n", optimal_next_cell->row, optimal_next_cell->col);
         //state->print_priority_queue(5);
-        SolveSudokuAndRecurse(state, solution);
+        SolveSudokuAndRecurse(state, solutions);
         // Undo previous update.
         //printf("[%u, %u]After recursion ended, and we need to start reverting\n", optimal_next_cell->row, optimal_next_cell->col);
         //state->print_priority_queue(5);
@@ -730,28 +752,29 @@ public:
         std::vector<fs::path> sudoku_pathnames = ReadDirectory(input_folder);
         std::vector<std::unique_ptr<ParsedSudoku>> parsed_sudokus = ParseSudokuProblems(sudoku_pathnames);
         std::cout << "starting threads parsed_sudokus.size() = " << parsed_sudokus.size() << std::endl;
+        std::cout<< "main thread ID is " << std::this_thread::get_id() << std::endl;
 
         // For each Sudoku, we create a thread to solve and publish the result of the sudoku
         // as a CSV file into the output folder.
         std::vector<std::thread> sudoku_threads;
         std::vector<Solver> solvers;
-//        for (unsigned uint32_t i = 0; i < parsed_sudokus.size(); i++)
-//        {
-        solvers.push_back(Solver(std::move(parsed_sudokus[0]), fs::path(output_folder)));
-            //std::thread new_thread = std::thread(&Solver::SolveSudoku, &solvers[i]);
-            //new_thread.join();
-            // sudoku_threads.push_back(std::move(new_thread));
-//        }
-        solvers[0].SolveSudoku();
-        /*            std::this_thread::sleep_for(std::chrono::seconds(5));
-                    for (auto& thread : sudoku_threads) {
-                        while (!thread.joinable()) {
-                            continue;
-                        }
-                        thread.join();
-                    }*/
+        uint32_t max_concurrent_threads = 1; // Get this number from hardware eventually.
+        uint32_t running_threads = 0;
+        uint32_t i = 0;
+        //while (i < parsed_sudokus.size()) {
+            while (running_threads < max_concurrent_threads) {
+                solvers.push_back(Solver(std::move(parsed_sudokus[i]), fs::path(output_folder)));
+                std::thread new_thread = std::thread(&Solver::SolveSudoku, &solvers[i]);
+                sudoku_threads.push_back(std::move(new_thread));
+                running_threads++;
+                i++;
+            }
+            for (auto& thread : sudoku_threads) {
+                thread.join();
+            }
+        //}
 
-        std::cout << "threads joined" << std::endl;
+        std::cout << "back to the main thread with ID " << std::this_thread::get_id() << " threads joined" << std::endl;
     }
 
 private:
