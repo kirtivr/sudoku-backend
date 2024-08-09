@@ -2,6 +2,8 @@
  * C++ Program to solve a sudoku and analyse:
  *   1. Whether the solution is unique.
  *   2. How difficult is the sudoku.
+ * 
+ * Before changes to make priority queue work correctly, time taken was 673204[µs].
  */
 
 #include <stdio.h>
@@ -21,6 +23,7 @@
 #include <algorithm>
 #include <random>
 #include <iterator>
+#include <chrono>
 namespace fs = std::filesystem;
 
 static std::vector<std::string> splitstring(std::string given, std::string token)
@@ -107,6 +110,23 @@ typedef struct CellCandidate {
         return candidates.size() < rhs.candidates.size();
     }
 } CellCandidate;
+
+typedef struct CellCandidatePtr {
+    CellCandidate* ptr;
+
+    bool operator==(const CellCandidatePtr& rhs) const {
+        return ptr->candidates.size() == rhs.ptr->candidates.size();
+    }
+
+    // We will add this data structure to a max-heap, so reverse the < and > meaning to get a min heap.
+    bool operator>(const CellCandidatePtr& rhs) const {
+        return ptr->candidates.size() < rhs.ptr->candidates.size();
+    }
+
+    bool operator<(const CellCandidatePtr& rhs) const {
+        return ptr->candidates.size() > rhs.ptr->candidates.size();
+    }
+} CellCandidatePtr;
 
 typedef struct Point {
   uint32_t row;
@@ -409,8 +429,25 @@ class Solver
 public:
     // Runs in a single thread.
     void SolveSudoku() {
+        std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         SudokuSolution solution;
         SolveSudokuAndRecurse(solver_state.get(), solution);
+        std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+        std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
+
+        if (found_solutions.size() > 0) {
+            printf("Found solution: \n");
+            for (auto& solution : found_solutions) {
+                for (uint32_t i = 0; i < solution.assignments.size(); i++) {
+                    for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
+                        printf("%d\t", solution.assignments[i][j]);
+                    }
+                    printf("\n");
+                }
+                printf("\n\n");
+            } 
+        }
+
     }
 
     Solver(std::unique_ptr<ParsedSudoku> sudoku, fs::path output_folder)
@@ -429,25 +466,27 @@ private:
                 return assignments;
             }
 
-            void Add(uint32_t value) {
-               CellCandidate* cell = pq.top();
+            void Add(CellCandidate* cell, uint32_t value) {
                assignments[cell->row][cell->col] = value;
                UpdateAdjacentHouses(cell, value);
-               pq.pop();
             }
 
             void Subtract(CellCandidate* cell, uint32_t value) {
                 UndoUpdateToAdjacentHouses(cell, value);
-                // The priority queue should be updated after the adjacent cells have been updated.
-                pq.push(cell);
                 assignments[cell->row][cell->col] = 0;
             }
 
-            CellCandidate* OptimalNextCell() {
+            CellCandidate* PopAndGetOptimalNextCell() {
                 if (pq.empty()) {
                     return nullptr;
                 }
-                return pq.top();
+                CellCandidate* top = pq.top().ptr;
+                pq.pop();
+                return top;
+            }
+
+            void PushToPQ(CellCandidate* cell) {
+                pq.push(CellCandidatePtr{.ptr = cell});
             }
 
             std::vector<std::vector<uint32_t>> get_cell_assignments() {
@@ -459,7 +498,7 @@ private:
                 pq_map = std::move(candidates);
                 for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
                     CellCandidate* cell = &it->second;
-                    pq.push(cell);
+                    pq.push(CellCandidatePtr{.ptr = cell});
                 }
                 // std::cout << "Printing Givens " << " size is " << sudoku->get_givens().size() << " columns is " <<  sudoku->get_givens()[0].size() << std::endl;
                 for (uint32_t i = 0; i < sudoku->get_givens().size(); i++) {
@@ -473,6 +512,31 @@ private:
 
             SudokuStepState() = delete;
 
+            void print_priority_queue(int N) {
+                std::vector<CellCandidatePtr> popped;
+                int count = 0;
+                if (N == -1) {
+                    N = pq.size();
+                }
+                while (count < N) {
+                    auto& top = pq.top();
+                    printf("[%u, %u] : size = %lu\n", top.ptr->row, top.ptr->col, top.ptr->candidates.size());
+                    popped.push_back(top);
+                    pq.pop();
+                    count++;
+                }
+                for (uint32_t i = 0; i < popped.size(); i++) {
+                    for (uint32_t j = i + 1; j < popped.size(); j++) {
+                        if (popped[i].ptr == popped[j].ptr) {
+                            printf("Heap corruption, element [%u, %u] is on the heap twice.\n", popped[i].ptr->row, popped[i].ptr->col);
+                        }
+                    }
+                }
+                for (auto& elem : popped) {
+                    pq.push(CellCandidatePtr{.ptr = elem.ptr});
+                }
+                std::cout << std::endl;
+            }
         private:
             std::set<Point> get_adjacent_points(CellCandidate& cell);
             void UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded);
@@ -498,7 +562,7 @@ private:
             ParsedSudoku* sudoku_ptr;
             // Authoritative owner of all CellCandidate(s).
             std::map<Point, CellCandidate> pq_map;
-            std::priority_queue<CellCandidate*> pq;
+            std::priority_queue<CellCandidatePtr> pq;
             // Current assignments to the coordinates of the sudoku.
             std::vector<std::vector<uint32_t>> assignments;
     };
@@ -586,48 +650,51 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
 }
 
 void Solver::SolveSudokuAndRecurse(SudokuStepState* state, SudokuSolution& solution) {
-    CellCandidate* optimal_next_cell = state->OptimalNextCell();
+    CellCandidate* optimal_next_cell = state->PopAndGetOptimalNextCell();
+    //printf("Next cell from heap is [%u, %u]\n", optimal_next_cell->row, optimal_next_cell->col);
     if (optimal_next_cell == nullptr) {
         solution.assignments = state->get_cell_assignments();
-        printf("Found solution!!\n");
-        for (uint32_t i = 0; i < solution.assignments.size(); i++) {
-            for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
-                printf("%d\t", solution.assignments[i][j]);
-            }
-            printf("\n");
-        }
-        found_solutions.push_back(solution);
-        printf("\n\n");
         return;
     }
 
     if (optimal_next_cell->candidates.size() == 0) {
         // We made an incorrect assignment.
-        std::cout<< "No options for cell " << optimal_next_cell->row << " " << optimal_next_cell->col << std::endl;
+        //std::cout<< "No options for cell " << optimal_next_cell->row << " " << optimal_next_cell->col << std::endl;
         return;
     }
 
-    if (state->get_cell_assignments()[optimal_next_cell->row][optimal_next_cell->col] != 0) {
-        std::cout<< "EEEEEEEEERRRRRRRRRRRRROOOOOOOOOOORRRRRRRRRRRRRRR this cell is assigned, already" << std::endl;
-    }
-
-    print_sudoku_assignments(state->get_assignments());
-
-    // Pick a candidate coloring for the cell.
     std::set<uint32_t> candidates_to_pick = std::set<uint32_t>(optimal_next_cell->candidates);
     /*std::cout<< "\nCandidates for [" << optimal_next_cell->row << ", " << optimal_next_cell->col << "]" << " are ";
     for (uint32_t c : candidates_to_pick) {
         std::cout << c << ",";
     }
     std::cout << std::endl;*/
+
+    if (state->get_cell_assignments()[optimal_next_cell->row][optimal_next_cell->col] != 0) {
+        std::cout<< "EEEEEEEEERRRRRRRRRRRRROOOOOOOOOOORRRRRRRRRRRRRRR this cell is assigned, already" << std::endl;
+    }
+
+    //print_sudoku_assignments(state->get_assignments());
+
+    // Pick a candidate coloring for the cell.
     for (uint32_t picked_candidate : candidates_to_pick) {
-        // std::cout<< "Assigning " << picked_candidate << " to " << "[" << optimal_next_cell->row << ", " << optimal_next_cell->col << "]" << std::endl;
-        state->Add(picked_candidate);
-        CellCandidate* copy = optimal_next_cell;
+        //std::cout<< "Assigning " << picked_candidate << " to " << "[" << optimal_next_cell->row << ", " << optimal_next_cell->col << "]" << std::endl;
+        //printf("[%u, %u] Before adding\n", copy->row, copy->col);
+        //state->print_priority_queue(0);
+        state->Add(optimal_next_cell, picked_candidate);
+        //printf("[%u, %u]Entering recursion\n", optimal_next_cell->row, optimal_next_cell->col);
+        //state->print_priority_queue(5);
         SolveSudokuAndRecurse(state, solution);
         // Undo previous update.
-        state->Subtract(copy, picked_candidate);
+        //printf("[%u, %u]After recursion ended, and we need to start reverting\n", optimal_next_cell->row, optimal_next_cell->col);
+        //state->print_priority_queue(5);
+        state->Subtract(optimal_next_cell, picked_candidate);
+        //printf("[%u, %u]After reverting\n", copy->row, copy->col);
+        // state->print_priority_queue(-1);
     }
+
+    // We could not find a correct assignment, which means we want to recurse upwards.
+    state->PushToPQ(optimal_next_cell);
 }
 
 std::set<Point> Solver::SudokuStepState::get_adjacent_points(CellCandidate& cell) {

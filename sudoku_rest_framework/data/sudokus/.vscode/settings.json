@@ -57,6 +57,10 @@
         "cstring": "cpp",
         "iomanip": "cpp",
         "sstream": "cpp",
-        "set": "cpp"
+        "set": "cpp",
+        "variant": "cpp",
+        "charconv": "cpp",
+        "chrono": "cpp",
+        "format": "cpp"
     }
 }
