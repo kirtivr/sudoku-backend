@@ -434,13 +434,13 @@ public:
     // Runs in a single thread.
     void SolveSudoku() {
         std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-        std::cout<< "Thread ID is " << std::this_thread::get_id() << std::endl;
-        SolveSudokuAndRecurse(solver_state.get(), found_solutions);
+        //std::cout<< "Thread ID is " << std::this_thread::get_id() << std::endl;
+        SolveSudokuAndRecurse(solver_state.get());
         std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
         std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
 
         if (found_solutions.size() > 0) {
-            printf("Found solution: \n");
+            /*printf("Found solution: \n");
             for (auto& solution : found_solutions) {
                 for (uint32_t i = 0; i < solution.assignments.size(); i++) {
                     for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
@@ -449,10 +449,9 @@ public:
                     printf("\n");
                 }
                 printf("\n\n");
-            } 
-        }
-
-        bool result = WriteSolutionToOutputFile();
+            }*/
+            WriteSolutionToOutputFile();
+        }        
     }
 
     Solver(std::unique_ptr<ParsedSudoku> sudoku, fs::path output_folder)
@@ -609,7 +608,7 @@ private:
     // In the future we can also consider other cells which are close to the most optimal,
     // let us say, top 10 cells or so and their average difficulty. This would slow down the
     // sudoku program by a factor though.
-    void SolveSudokuAndRecurse(SudokuStepState* state, std::vector<SudokuSolution>& solutions);
+    void SolveSudokuAndRecurse(SudokuStepState* state);
 
     void BuildInitialSudokuState() {
         auto cell_candidates = ComputeInitialCandidates(sudoku->get_rank(), sudoku->get_givens(), sudoku->get_houses());
@@ -682,13 +681,12 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
     }*/
 }
 
-void Solver::SolveSudokuAndRecurse(SudokuStepState* state, std::vector<SudokuSolution>& solutions) {
+void Solver::SolveSudokuAndRecurse(SudokuStepState* state) {
     CellCandidate* optimal_next_cell = state->PopAndGetOptimalNextCell();
     if (optimal_next_cell == nullptr) {
-        // printf("found solution\n");
         SudokuSolution solution;
         solution.assignments = state->get_cell_assignments();
-        solutions.push_back(solution);
+        found_solutions.push_back(solution);
         return;
     }
     //printf("Next cell from heap is [%u, %u]\n", optimal_next_cell->row, optimal_next_cell->col);
@@ -720,7 +718,7 @@ void Solver::SolveSudokuAndRecurse(SudokuStepState* state, std::vector<SudokuSol
         state->Add(optimal_next_cell, picked_candidate);
         //printf("[%u, %u]Entering recursion\n", optimal_next_cell->row, optimal_next_cell->col);
         //state->print_priority_queue(5);
-        SolveSudokuAndRecurse(state, solutions);
+        SolveSudokuAndRecurse(state);
         // Undo previous update.
         //printf("[%u, %u]After recursion ended, and we need to start reverting\n", optimal_next_cell->row, optimal_next_cell->col);
         //state->print_priority_queue(5);
@@ -766,21 +764,34 @@ public:
         // as a CSV file into the output folder.
         std::vector<std::thread> sudoku_threads;
         std::vector<Solver> solvers;
-        uint32_t max_concurrent_threads = 1; // Get this number from hardware eventually.
-        uint32_t running_threads = 0;
+        auto ps_it = parsed_sudokus.begin();
         uint32_t i = 0;
-        //while (i < parsed_sudokus.size()) {
+        while (i < 100/*parsed_sudokus.size()*/) {
+            auto next_ps_it = ps_it + 1;
+            solvers.push_back(Solver(std::move(*ps_it), fs::path(output_folder)));
+            ps_it = next_ps_it;
+            i++;
+        }
+
+        auto sol_it = solvers.begin();
+        uint32_t n = std::thread::hardware_concurrency();
+        std::cout << n << " concurrent threads are supported.\n";
+        uint32_t max_concurrent_threads = n; // Get this number from hardware eventually.
+        uint32_t running_threads = 0;
+        while (sol_it != solvers.end()) {
             while (running_threads < max_concurrent_threads) {
-                solvers.push_back(Solver(std::move(parsed_sudokus[i]), fs::path(output_folder)));
-                std::thread new_thread = std::thread(&Solver::SolveSudoku, &solvers[i]);
-                sudoku_threads.push_back(std::move(new_thread));
+                auto next_sol_it = sol_it + 1;
+                sudoku_threads.push_back(std::thread(&Solver::SolveSudoku, &(*sol_it)));
+                sol_it = next_sol_it;
                 running_threads++;
-                i++;
             }
+            running_threads = 0;
             for (auto& thread : sudoku_threads) {
-                thread.join();
+                if (thread.joinable()) {
+                    thread.join();
+                }
             }
-        //}
+        }
 
         std::cout << "back to the main thread with ID " << std::this_thread::get_id() << " threads joined" << std::endl;
     }
