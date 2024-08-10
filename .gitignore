@@ -3,3 +3,4 @@ sudoku_rest_framework/settings.py
 sudoku_rest_framework/data/sudokus/obj/
 *.o
 sudoku_rest_framework/data/sudokus/output
+sudoku_rest_framework/data/sudokus/.vscode/

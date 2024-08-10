@@ -5,6 +5,9 @@
  * 
  * Before changes to make priority queue work correctly, time taken was 673 ms.
  * After changes to make priority queue work correctly, time taken was 450 ms.
+ * After precomputing some stuff, time taken was 180ms. This was a big win, and quite unexpected to be honest, since the expected
+ * asymptotic long pole was elsewhere.
+ * Removing -fsanitize=address from the compilation option, time taken was 65ms. The sanitizer has a 3X overhead. Whoosh.
  */
 
 #include <stdio.h>
@@ -504,7 +507,7 @@ private:
                 pq_map = std::move(candidates);
                 for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
                     CellCandidate* cell = &it->second;
-                    pq.push(CellCandidatePtr{.ptr = cell});
+                    pq.push(CellCandidatePtr{.ptr = cell});                    
                 }
                 // std::cout << "Printing Givens " << " size is " << sudoku->get_givens().size() << " columns is " <<  sudoku->get_givens()[0].size() << std::endl;
                 for (uint32_t i = 0; i < sudoku->get_givens().size(); i++) {
@@ -514,6 +517,9 @@ private:
                     }
                 }
                 sudoku_ptr = sudoku;
+                for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
+                    adjacent_points.insert({it->first, get_adjacent_points(it->first)});
+                }
             }
 
             SudokuStepState() = delete;
@@ -545,7 +551,7 @@ private:
             }
 
         private:
-            std::set<Point> get_adjacent_points(CellCandidate& cell);
+            std::set<Point> get_adjacent_points(const Point& cell);
             void UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded);
             void UpdateAdjacentHouses(CellCandidate* cell, uint32_t value);
 
@@ -572,6 +578,8 @@ private:
             std::priority_queue<CellCandidatePtr> pq;
             // Current assignments to the coordinates of the sudoku.
             std::vector<std::vector<uint32_t>> assignments;
+            // Adjacent points of a given point.
+            std::map<Point, std::set<Point>> adjacent_points;
     };
 
     bool WriteSolutionToOutputFile() {
@@ -640,7 +648,7 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
     }
 
     // This can probably be pre-computed.
-    std::set<Point> adj_points = get_adjacent_points(*cell);
+    std::set<Point>& adj_points = adjacent_points[cell_coord];
     //auto it = revert_updates.end();
 
     for (auto& update_coord : adj_points) {
@@ -659,7 +667,7 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
                 //std::cout<< "CellCandidate " << cell_coord << " was assigned " << value << " and adjacent cell " << update_coord << " was updated. it->key = " << it->first << std::endl;
                 auto& [_, update_set] = *it;
                 update_set.insert(to_insert);
-            }            
+            }
         }
     }
 
@@ -725,17 +733,17 @@ void Solver::SolveSudokuAndRecurse(SudokuStepState* state, std::vector<SudokuSol
     state->PushToPQ(optimal_next_cell);
 }
 
-std::set<Point> Solver::SudokuStepState::get_adjacent_points(CellCandidate& cell) {
+std::set<Point> Solver::SudokuStepState::get_adjacent_points(const Point& coord) {
     std::set<Point> adj_cols, adj_rows, adj_houses;
     uint32_t N =  assignments.size();
 
     for (uint32_t col = 0; col < N; col ++) {
-        adj_cols.insert(Point{.row = cell.row, .col = col});
+        adj_cols.insert(Point{.row = coord.row, .col = col});
     }
     for (uint32_t row = 0; row < N; row ++) {
-        adj_rows.insert(Point{.row = row, .col = cell.col});
+        adj_rows.insert(Point{.row = row, .col = coord.col});
     }
-    adj_houses = points_in_house(cell.row, cell.col, sudoku_ptr->get_houses());
+    adj_houses = points_in_house(coord.row, coord.col, sudoku_ptr->get_houses());
 
     std::set<Point> adj_points;
     adj_points.insert(adj_rows.begin(), adj_rows.end());
