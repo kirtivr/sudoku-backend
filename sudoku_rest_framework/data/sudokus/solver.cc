@@ -433,11 +433,11 @@ class Solver
 public:
     // Runs in a single thread.
     void SolveSudoku() {
-        std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+        //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         //std::cout<< "Thread ID is " << std::this_thread::get_id() << std::endl;
         SolveSudokuAndRecurse(solver_state.get());
-        std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-        std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
+        //std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+        //std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << std::endl;
 
         if (found_solutions.size() > 0) {
             /*printf("Found solution: \n");
@@ -757,40 +757,43 @@ public:
     {
         std::vector<fs::path> sudoku_pathnames = ReadDirectory(input_folder);
         std::vector<std::unique_ptr<ParsedSudoku>> parsed_sudokus = ParseSudokuProblems(sudoku_pathnames);
-        std::cout << "starting threads parsed_sudokus.size() = " << parsed_sudokus.size() << std::endl;
-        std::cout<< "main thread ID is " << std::this_thread::get_id() << std::endl;
 
-        // For each Sudoku, we create a thread to solve and publish the result of the sudoku
-        // as a CSV file into the output folder.
-        std::vector<std::thread> sudoku_threads;
         std::vector<Solver> solvers;
         auto ps_it = parsed_sudokus.begin();
         uint32_t i = 0;
-        while (i < 100/*parsed_sudokus.size()*/) {
+        while (i < parsed_sudokus.size()) {
             auto next_ps_it = ps_it + 1;
             solvers.push_back(Solver(std::move(*ps_it), fs::path(output_folder)));
             ps_it = next_ps_it;
             i++;
         }
 
+        uint32_t concurrent_threads = std::thread::hardware_concurrency();
         auto sol_it = solvers.begin();
-        uint32_t n = std::thread::hardware_concurrency();
-        std::cout << n << " concurrent threads are supported.\n";
-        uint32_t max_concurrent_threads = n; // Get this number from hardware eventually.
-        uint32_t running_threads = 0;
         while (sol_it != solvers.end()) {
-            while (running_threads < max_concurrent_threads) {
-                auto next_sol_it = sol_it + 1;
+            uint32_t running_threads = 0;
+            std::vector<std::thread> sudoku_threads;
+            std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+            // For each Sudoku, we create a thread to solve and publish the result of the sudoku
+            // as a CSV file into the output folder.
+            while (running_threads < concurrent_threads && sol_it != solvers.end()) {
                 sudoku_threads.push_back(std::thread(&Solver::SolveSudoku, &(*sol_it)));
-                sol_it = next_sol_it;
+                sol_it++;
                 running_threads++;
             }
-            running_threads = 0;
+            // Wait for all threads to finish.
             for (auto& thread : sudoku_threads) {
-                if (thread.joinable()) {
-                    thread.join();
-                }
+                while (!thread.joinable()) {}
+                thread.join();
             }
+            std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+            std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << std::endl;
+            std::cout << "Sudokus remaining: " << (solvers.end() - sol_it) << std::endl;
+            // Free up memory we are not going to use.
+            sudoku_threads.clear();
+            solvers.erase(solvers.begin(), solvers.begin() + running_threads);
+            sol_it = solvers.begin();
+            running_threads = 0;
         }
 
         std::cout << "back to the main thread with ID " << std::this_thread::get_id() << " threads joined" << std::endl;
