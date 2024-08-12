@@ -1,7 +1,7 @@
 sudoku_rest_framework/data/sudokus/do_not_gitinclude/
 sudoku_rest_framework/settings.py
-sudoku_rest_framework/data/sudokus/obj/
 *.o
-sudoku_rest_framework/data/sudokus/output
 sudoku_rest_framework/data/sudokus/.vscode/
-sudoku_rest_framework/data/sudokus/sudoku_solutions/
+sudoku_rest_framework/data/sudokus/playground/output
+sudoku_rest_framework/data/sudokus/playground/obj/
+sudoku_rest_framework/data/sudokus/playground/sudoku_solutions/
