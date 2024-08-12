@@ -35,9 +35,9 @@ typedef struct CommandLineArgs {
     std::string input_folder;
     std::string output_folder;
     // number of randomized iterations per sudoku.
-    uint32_t num_iterations = 1;
+    uint32_t num_iterations;
     // Extent to which sudoku solving attempts should be randomized.
-    uint32_t randomness = 1;
+    uint32_t randomness;
 } CommandLineArgs;
 
 std::optional<CommandLineArgs> parse_command_line_args(const std::vector<std::string>& args) {
@@ -53,18 +53,32 @@ std::optional<CommandLineArgs> parse_command_line_args(const std::vector<std::st
         return std::nullopt;
     }
     uint32_t iterations_per_sudoku = 1;
-    uint32_t randomness = 1;
-    try {
-        iterations_per_sudoku = std::stoi(args[2]);
-    } catch (const std::exception &ex) {
-        std::cout << "Iterations per sudoku " << args[2] << " must be numeric.\n";
-        return std::nullopt;
+    uint32_t randomness = 0;
+    if (args.size() > 2) {
+        try {
+            int input = std::stoi(args[2]);
+            if (input < 0) {
+                std::cout << "Iterations per sudoku " << args[2] << " must be positive.\n";
+                return std::nullopt;                
+            }
+            iterations_per_sudoku = (uint32_t)input;
+        } catch (const std::exception &ex) {
+            std::cout << "Iterations per sudoku " << args[2] << " must be numeric.\n";
+            return std::nullopt;
+        }
     }
-    try {
-        randomness = std::stoi(args[3]);
-    } catch (const std::exception &ex) {
-        std::cout << "Randomness " << args[3] << " must be numeric.\n";
-        return std::nullopt;
+    if (args.size() > 3) {
+        try {
+            int input = std::stoi(args[3]);
+            if (input < 0) {
+                std::cout << "Iterations per sudoku " << args[3] << " must be positive.\n";
+                return std::nullopt;                
+            }
+            randomness = (uint32_t)input;
+        } catch (const std::exception &ex) {
+            std::cout << "Randomness " << args[3] << " must be numeric.\n";
+            return std::nullopt;
+        }
     }
     return CommandLineArgs {
         .input_folder = input_folder,
@@ -72,6 +86,14 @@ std::optional<CommandLineArgs> parse_command_line_args(const std::vector<std::st
         .num_iterations = iterations_per_sudoku,
         .randomness = randomness
     };
+}
+
+uint32_t generate_random_number_upto(uint32_t high) {
+    std::random_device rd; // obtain a random number from hardware
+    std::mt19937 gen(rd()); // seed the generator
+    std::uniform_int_distribution<> distr(0, high); // define the range
+    int generated = distr(gen);
+    return generated;
 }
 
 static std::vector<std::string> splitstring(std::string given, std::string token)
@@ -118,27 +140,6 @@ std::vector<fs::path> ReadDirectory(std::string directory_path)
     return directory_contents;
 }
 
-typedef struct StepDifficulty
-{
-    uint32_t sudoku_id;
-    uint32_t num_of_easy_cells;
-    uint32_t candidates_per_easy_cell;
-    uint32_t average_number_of_candidates_per_cell;
-} StepDifficulty;
-
-typedef struct Difficulty
-{
-    uint32_t sudoku_id;
-    std::vector<StepDifficulty> outcome_difficulty;
-} Difficulty;
-
-typedef struct SudokuSolution
-{
-    uint32_t sudoku_id;
-    std::vector<std::vector<uint32_t>> assignments;
-    Difficulty analysed_difficulty;
-} SudokuSolution;
-
 typedef struct CellCandidate {
     uint32_t row; // 0 - 3/8.
     uint32_t col; // 0 - 3/8.
@@ -174,10 +175,125 @@ typedef struct CellCandidatePtr {
         return ptr->candidates.size() > rhs.ptr->candidates.size();
     }
 
-    CellCandidate* operator ->() {
+    CellCandidate* operator ->() const {
         return ptr;
     }
 } CellCandidatePtr;
+
+class StepDifficulty
+{
+    public:
+        StepDifficulty(uint32_t sudoku_id): sudoku_id(sudoku_id) {}
+
+        void RecordStep(const std::vector<CellCandidatePtr>& top_candidates, const CellCandidatePtr& selected) {
+            number_of_steps += 1;
+            picked_cell_candidates_sum += selected.ptr->candidates.size();
+            for (const auto& x : top_candidates) {
+                store_counts.push_back(x.ptr->candidates.size());
+            }
+            top_cells_num_candidates_median_sum += median(store_counts);
+            store_counts.clear();
+        }
+
+        void Clear() {
+            number_of_steps = 0;
+            picked_cell_candidates_sum = 0;
+            top_cells_num_candidates_median_sum = 0;
+        }
+
+        uint32_t get_number_of_steps() const {
+            return number_of_steps;
+        }
+
+        double get_average_picked_candidate() const {
+            return (double)picked_cell_candidates_sum; /// number_of_steps;
+        }
+
+        double get_average_median_candidates() const {
+            return (double)top_cells_num_candidates_median_sum; /// number_of_steps;
+        }
+
+    private:
+        int median(std::vector<uint32_t> &v) {
+            std::size_t n = v.size() / 2;
+            std::nth_element(v.begin(), v.begin()+n, v.end());
+            return v[n];
+        }
+
+        uint32_t sudoku_id;
+        uint32_t number_of_steps = 0;
+        uint32_t picked_cell_candidates_sum = 0;
+        uint32_t top_cells_num_candidates_median_sum = 0;
+        std::vector<uint32_t> store_counts;
+};
+
+class SudokuSolution
+{
+    public:
+        SudokuSolution(uint32_t sudoku_id, const std::vector<std::vector<uint32_t>>& givens):
+            sudoku_id(sudoku_id), analysed_difficulty(StepDifficulty(sudoku_id)), num_successful_outcomes(0), num_failed_outcomes(0) {
+            copy_bitmap(givens, get_assignments());
+        }
+
+        StepDifficulty get_difficulty() {
+            return analysed_difficulty;
+        }
+
+        void update_assignment(uint32_t row, uint32_t col, uint32_t value) {
+            assignments[row][col] = value;
+        }
+
+        std::vector<std::vector<uint32_t>>& get_assignments() {
+            return assignments;
+        }
+
+        std::vector<std::vector<std::vector<uint32_t>>>& get_solved_bitmaps() {
+            return solved_bitmap;
+        }
+
+        void RecordStep(const std::vector<CellCandidatePtr>& top_candidates, const CellCandidatePtr& selected) {
+            analysed_difficulty.RecordStep(top_candidates, selected);
+            printf("recorded step picked_candidate_size_sum = %u top_n_sum = %u\n", analysed_difficulty.get_average_picked_candidate(), analysed_difficulty.get_average_median_candidates());
+        }
+
+        void update_outcome (bool success) {
+            printf("outcome updated success = %u failed = %u\n", num_successful_outcomes, num_failed_outcomes);
+            if (success) {
+                num_successful_outcomes += 1;
+                solved_bitmap.push_back({});
+                auto& to_update = solved_bitmap.back();
+                copy_bitmap(get_assignments(), to_update);
+            } else {
+                num_failed_outcomes += 1;
+            }
+            printf("outcome updated success = %u failed = %u\n", num_successful_outcomes, num_failed_outcomes);
+        }
+
+        uint32_t get_num_successful_outcomes() {
+            return num_successful_outcomes;
+        }
+
+        uint32_t get_num_failed_outcomes() {
+            return num_failed_outcomes;
+        }
+
+    private:
+        void copy_bitmap(const std::vector<std::vector<uint32_t>>& givens, std::vector<std::vector<uint32_t>>& to_update) {
+            for (uint32_t i = 0; i < givens.size(); i++) {
+                to_update.push_back({});
+                for (uint32_t j = 0; j < givens[0].size(); j++) {
+                    to_update[i].push_back(givens[i][j]);
+                }
+            }
+        }
+
+        uint32_t sudoku_id;
+        std::vector<std::vector<uint32_t>> assignments;
+        std::vector<std::vector<std::vector<uint32_t>>> solved_bitmap;
+        uint32_t num_successful_outcomes;
+        uint32_t num_failed_outcomes;
+        StepDifficulty analysed_difficulty;
+};
 
 typedef struct Point {
   uint32_t row;
@@ -505,19 +621,31 @@ public:
         SolveSudokuAndRecurse(solver_state.get());
         //std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
         //std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << std::endl;
+        found_solutions.push_back(solver_state->get_solution());
 
         if (found_solutions.size() > 0) {
-            /*printf("Found solution: \n");
+            printf("Found solution: \n");
             for (auto& solution : found_solutions) {
-                for (uint32_t i = 0; i < solution.assignments.size(); i++) {
-                    for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
-                        printf("%d\t", solution.assignments[i][j]);
+                const auto& solved_bitmaps = solution.get_solved_bitmaps();
+                for (const auto& solved : solved_bitmaps) {
+                    for (uint32_t i = 0; i < solved.size(); i++) {
+                        for (uint32_t j = 0; j < solved[0].size(); j++) {
+                            printf("%d\t", solved[i][j]);
+                        }
+                        printf("\n");
                     }
-                    printf("\n");
                 }
+
+                printf("\nDifficulty metrics\n");
+                printf("Successful outcomes : %u\n", solution.get_num_successful_outcomes());
+                printf("Failed outcomes : %u\n", solution.get_num_failed_outcomes());
+                const auto& difficulty = solution.get_difficulty();
+                printf("Number of steps : %u\n", difficulty.get_number_of_steps());
+                printf("Average candidate size for picked candidate : %f\n", difficulty.get_average_picked_candidate());
+                printf("Average median candidate size : %f\n", difficulty.get_average_median_candidates());
                 printf("\n\n");
-            }*/
-            WriteSolutionToOutputFile();
+            }
+            // WriteSolutionToOutputFile();
         }        
     }
 
@@ -528,7 +656,7 @@ public:
         this->solution_file_path = output_folder;
         this->num_iterations = num_iterations;
         this->randomness = randomness;
-        printf("Initialized solver with o/p %s, iter %u, randomness %u", this->solution_file_path.c_str(), this->num_iterations, this->randomness);
+        printf("Initialized solver with o/p %s, iter %u, randomness %u\n", this->solution_file_path.c_str(), this->num_iterations, this->randomness);
         BuildInitialSudokuState();
     }
 
@@ -538,16 +666,24 @@ private:
     class SudokuStepState {
         public:
             std::vector<std::vector<uint32_t>>& get_assignments() {
-                return assignments;
+                return solution.get_assignments();
+            }
+
+            SudokuSolution get_solution() {
+                return solution;
+            }
+
+            StepDifficulty get_difficulty_metrics() {
+                return solution.get_difficulty();
             }
 
             void Add(CellCandidate* cell, uint32_t value) {
-               assignments[cell->row][cell->col] = value;
+               solution.update_assignment(cell->row, cell->col, value);
                UpdateAdjacentHouses(cell, value);
             }
 
             void Subtract(CellCandidate* cell, uint32_t value) {
-                assignments[cell->row][cell->col] = 0;
+                solution.update_assignment(cell->row, cell->col, 0);
                 UndoUpdateToAdjacentHouses(cell, value);
             }
 
@@ -557,9 +693,22 @@ private:
                     //print_sudoku_assignments(get_assignments());
                     return nullptr;
                 }
-                CellCandidate* top = pq.top().ptr;
+                CellCandidate* top = nullptr;
+                std::vector<CellCandidatePtr> back_to_heap;
+                uint32_t shuffle_max = randomness >= pq.size() ? pq.size() - 1 : randomness;
+                uint32_t shuffle = generate_random_number_upto(shuffle_max);
+                for(uint32_t i = 0; i < shuffle; i++) {
+                    back_to_heap.push_back(pq.top());
+                    pq.pop();
+                }
+                auto top_ptr = pq.top();
+                top = top_ptr.ptr;
+                // Update difficulty for step.
+                solution.RecordStep(back_to_heap, top_ptr);
                 pq.pop();
-                //printf("popped [%u, %u] elements remaining in pq are %lu\n", top->row, top->col, pq.size());
+                for(uint32_t i = 0; i < shuffle; i++) {
+                    pq.push(back_to_heap[i]);
+                }
                 return top;
             }
 
@@ -568,23 +717,13 @@ private:
                 pq.push(CellCandidatePtr{.ptr = cell});
             }
 
-            std::vector<std::vector<uint32_t>> get_cell_assignments() {
-                return assignments;
-            }
-
             SudokuStepState(std::map<Point, CellCandidate> candidates,
-                            ParsedSudoku* sudoku) {
+                            ParsedSudoku* sudoku, uint32_t randomness) : solution(SudokuSolution(sudoku->get_sudoku_id(), sudoku->get_givens())) {
+                this->randomness = randomness;
                 pq_map = std::move(candidates);
                 for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
                     CellCandidate* cell = &it->second;
-                    pq.push(CellCandidatePtr{.ptr = cell});                    
-                }
-                // std::cout << "Printing Givens " << " size is " << sudoku->get_givens().size() << " columns is " <<  sudoku->get_givens()[0].size() << std::endl;
-                for (uint32_t i = 0; i < sudoku->get_givens().size(); i++) {
-                    this->assignments.push_back({});
-                    for (uint32_t j = 0; j < sudoku->get_givens()[0].size(); j++) {
-                        this->assignments[i].push_back(sudoku->get_givens()[i][j]);
-                    }
+                    pq.push(CellCandidatePtr{.ptr = cell});
                 }
                 sudoku_ptr = sudoku;
                 for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
@@ -617,7 +756,7 @@ private:
                 for (auto& elem : popped) {
                     pq.push(CellCandidatePtr{.ptr = elem.ptr});
                 }
-                std::cout << std::endl;
+                // std::cout << std::endl;
             }
 
         private:
@@ -649,40 +788,17 @@ private:
             std::vector<std::vector<uint32_t>> assignments;
             // Adjacent points of a given point.
             std::map<Point, std::set<Point>> adjacent_points;
+            // Associated solution object.
+            SudokuSolution solution;
+            uint32_t randomness;
     };
 
-    bool WriteSolutionToOutputFile() {
-        std::ofstream output_file;
-        fs::path out_file (std::to_string(sudoku->get_sudoku_id()) + ".csv");
-        fs::path output_path = solution_file_path / out_file;
-        output_file.open (output_path);
-
-        std::string output = "";
-        for (auto& solution : found_solutions) {
-            for (uint32_t i = 0; i < solution.assignments.size(); i++) {
-                    for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
-                        output = output + std::to_string(solution.assignments[i][j]);
-                    }
-                }
-            output_file << output << "\n";
-            output = "";
-        }
-        output_file.close();
-        return true;
-    }
-
-    // TODO: Add and verify difficulty metrics.
-    // This should be a combination of:
-    // 1) Number of assignments already done
-    // 2) The number of candidates in the optimal next step.
-    // In the future we can also consider other cells which are close to the most optimal,
-    // let us say, top 10 cells or so and their average difficulty. This would slow down the
-    // sudoku program by a factor though.
     void SolveSudokuAndRecurse(SudokuStepState* state);
-
+    bool SolutionIsUnique();
+    bool WriteSolutionToOutputFile();
     void BuildInitialSudokuState() {
         auto cell_candidates = ComputeInitialCandidates(sudoku->get_rank(), sudoku->get_givens(), sudoku->get_houses());
-        solver_state = std::make_unique<SudokuStepState>(std::move(cell_candidates), sudoku.get());
+        solver_state = std::make_unique<SudokuStepState>(std::move(cell_candidates), sudoku.get(), randomness);
     }
 
     std::unique_ptr<ParsedSudoku> sudoku;
@@ -692,6 +808,31 @@ private:
     std::unique_ptr<SudokuStepState> solver_state;
     std::vector<SudokuSolution> found_solutions;
 };
+
+bool Solver::SolutionIsUnique() {
+    return true;
+}
+
+bool Solver::WriteSolutionToOutputFile() {
+/*    std::ofstream output_file;
+    fs::path out_file (std::to_string(sudoku->get_sudoku_id()) + ".csv");
+    fs::path output_path = solution_file_path / out_file;
+    output_file.open (output_path);
+
+    std::string output = "";
+    for (auto& solution : found_solutions) {
+        for (uint32_t i = 0; i < solution.assignments.size(); i++) {
+                for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
+                    output = output + std::to_string(solution.assignments[i][j]);
+                }
+            }
+        output_file << output << "\n";
+        output = "";
+    }
+    output_file.close();
+    */
+    return true;
+}
 
 void Solver::SudokuStepState::UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded) {
     Point cell_coord = Point({.row = cell->row, .col = cell->col});
@@ -756,9 +897,7 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
 void Solver::SolveSudokuAndRecurse(SudokuStepState* state) {
     CellCandidate* optimal_next_cell = state->PopAndGetOptimalNextCell();
     if (optimal_next_cell == nullptr) {
-        SudokuSolution solution;
-        solution.assignments = state->get_cell_assignments();
-        found_solutions.push_back(solution);
+        state->get_solution().update_outcome(true);
         return;
     }
     //printf("Next cell from heap is [%u, %u]\n", optimal_next_cell->row, optimal_next_cell->col);
@@ -766,6 +905,7 @@ void Solver::SolveSudokuAndRecurse(SudokuStepState* state) {
         // We made an incorrect assignment.
         //std::cout<< "No options for cell " << optimal_next_cell->row << " " << optimal_next_cell->col << std::endl;
         state->PushToPQ(optimal_next_cell);
+        state->get_solution().update_outcome(false);
         return;
     }
 
@@ -776,9 +916,10 @@ void Solver::SolveSudokuAndRecurse(SudokuStepState* state) {
     }
     std::cout << std::endl;*/
 
-    if (state->get_cell_assignments()[optimal_next_cell->row][optimal_next_cell->col] != 0) {
+    if (state->get_assignments()[optimal_next_cell->row][optimal_next_cell->col] != 0) {
         std::cout<< "ERROR: this cell is assigned, already" << std::endl;
         state->PushToPQ(optimal_next_cell);
+        state->get_solution().update_outcome(false);
         return;
     }
 
@@ -868,8 +1009,8 @@ int main(int argc, char *argv[])
 {
     if (argc < 3 || argc > 5) {
         std::cerr << "Please provide necessary command line values.\n\n";
-        std::cerr << "usage: ./analyzer <input folder> <output folder> <number of randomized iterations per sudoku> <extent of randomization>\n";
-        std::cerr << "Example: ./analyzer input_sudokus_folder/ sudoku_analysis_folder/ 1 1\n\n";
+        std::cerr << "usage: ./analyzer <input folder> <output folder> <iterations>(optional) <randomness>(optional) \n";
+        std::cerr << "Example: ./analyzer input_sudokus_folder/ sudoku_analysis_folder/ 1 0\n\n";
         return EXIT_FAILURE;
     }
     const std::vector<std::string> args(argv + 1, argv + argc);
