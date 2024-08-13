@@ -187,11 +187,13 @@ class StepDifficulty
 
         void RecordStep(const std::vector<CellCandidatePtr>& top_candidates, const CellCandidatePtr& selected) {
             number_of_steps += 1;
-            picked_cell_candidates_sum += selected.ptr->candidates.size();
+            printf("\tDebug: picked cell candidate set size is %lu\n", selected->candidates.size());
+            picked_cell_candidates_sum += selected->candidates.size();
             for (const auto& x : top_candidates) {
-                store_counts.push_back(x.ptr->candidates.size());
+                store_counts.push_back(x->candidates.size());
+                printf("\tDebug: sampling cell candidate set size is %lu\n", x->candidates.size());
             }
-            top_cells_num_candidates_median_sum += median(store_counts);
+            top_cells_num_candidates_median_sum += 1;//median(store_counts);
             store_counts.clear();
         }
 
@@ -231,11 +233,11 @@ class SudokuSolution
 {
     public:
         SudokuSolution(uint32_t sudoku_id, const std::vector<std::vector<uint32_t>>& givens):
-            sudoku_id(sudoku_id), analysed_difficulty(StepDifficulty(sudoku_id)), num_successful_outcomes(0), num_failed_outcomes(0) {
+            sudoku_id(sudoku_id), num_successful_outcomes(0), num_failed_outcomes(0), analysed_difficulty(StepDifficulty(sudoku_id)) {
             copy_bitmap(givens, get_assignments());
         }
 
-        StepDifficulty get_difficulty() {
+        StepDifficulty& get_difficulty() {
             return analysed_difficulty;
         }
 
@@ -253,11 +255,10 @@ class SudokuSolution
 
         void RecordStep(const std::vector<CellCandidatePtr>& top_candidates, const CellCandidatePtr& selected) {
             analysed_difficulty.RecordStep(top_candidates, selected);
-            printf("recorded step picked_candidate_size_sum = %u top_n_sum = %u\n", analysed_difficulty.get_average_picked_candidate(), analysed_difficulty.get_average_median_candidates());
+            printf("recorded step num_steps = %u picked_candidate_size_sum = %f top_n_median_sum = %f\n", analysed_difficulty.get_number_of_steps(), analysed_difficulty.get_average_picked_candidate(), analysed_difficulty.get_average_median_candidates());
         }
 
         void update_outcome (bool success) {
-            printf("outcome updated success = %u failed = %u\n", num_successful_outcomes, num_failed_outcomes);
             if (success) {
                 num_successful_outcomes += 1;
                 solved_bitmap.push_back({});
@@ -269,11 +270,11 @@ class SudokuSolution
             printf("outcome updated success = %u failed = %u\n", num_successful_outcomes, num_failed_outcomes);
         }
 
-        uint32_t get_num_successful_outcomes() {
+        uint32_t get_num_successful_outcomes() const {
             return num_successful_outcomes;
         }
 
-        uint32_t get_num_failed_outcomes() {
+        uint32_t get_num_failed_outcomes() const {
             return num_failed_outcomes;
         }
 
@@ -321,7 +322,7 @@ std::ostream &operator<<(std::ostream &os, const Point &p)
     return os;
 }
 
-void print_sudoku_assignments(std::vector<std::vector<uint32_t>>& assignments) {
+void print_sudoku_assignments(const std::vector<std::vector<uint32_t>>& assignments) {
     for (uint32_t row = 0; row < assignments.size(); row ++) {
         for (uint32_t col = 0; col < assignments[0].size(); col ++) {
             printf("%d\t", assignments[row][col]);
@@ -628,12 +629,7 @@ public:
             for (auto& solution : found_solutions) {
                 const auto& solved_bitmaps = solution.get_solved_bitmaps();
                 for (const auto& solved : solved_bitmaps) {
-                    for (uint32_t i = 0; i < solved.size(); i++) {
-                        for (uint32_t j = 0; j < solved[0].size(); j++) {
-                            printf("%d\t", solved[i][j]);
-                        }
-                        printf("\n");
-                    }
+                    print_sudoku_assignments(solved);
                 }
 
                 printf("\nDifficulty metrics\n");
@@ -669,11 +665,11 @@ private:
                 return solution.get_assignments();
             }
 
-            SudokuSolution get_solution() {
+            SudokuSolution& get_solution() {
                 return solution;
             }
 
-            StepDifficulty get_difficulty_metrics() {
+            StepDifficulty& get_difficulty_metrics() {
                 return solution.get_difficulty();
             }
 
@@ -693,23 +689,8 @@ private:
                     //print_sudoku_assignments(get_assignments());
                     return nullptr;
                 }
-                CellCandidate* top = nullptr;
-                std::vector<CellCandidatePtr> back_to_heap;
-                uint32_t shuffle_max = randomness >= pq.size() ? pq.size() - 1 : randomness;
-                uint32_t shuffle = generate_random_number_upto(shuffle_max);
-                for(uint32_t i = 0; i < shuffle; i++) {
-                    back_to_heap.push_back(pq.top());
-                    pq.pop();
-                }
-                auto top_ptr = pq.top();
-                top = top_ptr.ptr;
-                // Update difficulty for step.
-                solution.RecordStep(back_to_heap, top_ptr);
-                pq.pop();
-                for(uint32_t i = 0; i < shuffle; i++) {
-                    pq.push(back_to_heap[i]);
-                }
-                return top;
+                uint32_t shuffle_max = randomness > pq.size() ? pq.size() : randomness;
+                return ShuffleCandidatesAndRecordStep(shuffle_max);
             }
 
             void PushToPQ(CellCandidate* cell) {
@@ -760,6 +741,7 @@ private:
             }
 
         private:
+            CellCandidate* ShuffleCandidatesAndRecordStep(uint32_t shuffle_max);
             void UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded);
             void UpdateAdjacentHouses(CellCandidate* cell, uint32_t value);
 
@@ -832,6 +814,41 @@ bool Solver::WriteSolutionToOutputFile() {
     output_file.close();
     */
     return true;
+}
+
+CellCandidate* Solver::SudokuStepState::ShuffleCandidatesAndRecordStep(uint32_t shuffle_max) {
+    CellCandidate* top = nullptr;
+    std::vector<CellCandidatePtr> top_candidates;
+    int cell_with_no_candidates = -1;
+
+    for(uint32_t i = 0; i < shuffle_max; i++) {
+        CellCandidatePtr el = pq.top();
+        if (el->candidates.size() == 0) {
+            cell_with_no_candidates = i;
+        }
+        top_candidates.push_back(el);
+        pq.pop();
+    }
+
+    CellCandidatePtr top_ptr;
+    if (cell_with_no_candidates == -1) {    
+        uint32_t shuffle_pick = generate_random_number_upto(shuffle_max);
+        top_ptr = top_candidates[shuffle_pick - 1];
+        top = top_ptr.ptr;
+    } else {
+        top_ptr = top_candidates[cell_with_no_candidates];
+        top = top_ptr.ptr;
+    }
+
+    solution.RecordStep(top_candidates, top_ptr);
+
+    for(uint32_t i = 0; i < shuffle_max; i++) {
+        if (top_candidates[i].ptr != top) {
+            pq.push(top_candidates[i]);
+        }
+    }
+
+    return top;
 }
 
 void Solver::SudokuStepState::UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded) {
