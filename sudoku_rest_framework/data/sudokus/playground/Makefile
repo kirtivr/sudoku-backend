@@ -1,6 +1,6 @@
 CXX=g++
 IDIR=.
-CFLAGS=-I$(IDIR) -Wall -pedantic
+CFLAGS=-I$(IDIR) -Wall -pedantic -g
 CXXFLAGS=-std=c++20 -fsanitize=address
 LIBS=-lm
 

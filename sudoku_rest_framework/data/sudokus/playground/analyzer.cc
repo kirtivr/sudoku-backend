@@ -185,15 +185,16 @@ class StepDifficulty
     public:
         StepDifficulty(uint32_t sudoku_id): sudoku_id(sudoku_id) {}
 
-        void RecordStep(const std::vector<CellCandidatePtr>& top_candidates, const CellCandidatePtr& selected) {
+        void RecordStep(const std::vector<CellCandidate*>& top_candidates, const CellCandidate* selected) {
             number_of_steps += 1;
+            printf("\tDebug: note a fixed cost per step %lu has been added for the picked cell and sampling median\n", cost_of_doing_a_step);
             printf("\tDebug: picked cell candidate set size is %lu\n", selected->candidates.size());
-            picked_cell_candidates_sum += selected->candidates.size();
+            picked_cell_candidates_sum += (selected->candidates.size() + cost_of_doing_a_step);
             for (const auto& x : top_candidates) {
                 store_counts.push_back(x->candidates.size());
                 printf("\tDebug: sampling cell candidate set size is %lu\n", x->candidates.size());
             }
-            top_cells_num_candidates_median_sum += 1;//median(store_counts);
+            top_cells_num_candidates_median_sum += (median(store_counts) + cost_of_doing_a_step);
             store_counts.clear();
         }
 
@@ -226,6 +227,7 @@ class StepDifficulty
         uint32_t number_of_steps = 0;
         uint32_t picked_cell_candidates_sum = 0;
         uint32_t top_cells_num_candidates_median_sum = 0;
+        uint32_t cost_of_doing_a_step = 3;
         std::vector<uint32_t> store_counts;
 };
 
@@ -253,7 +255,7 @@ class SudokuSolution
             return solved_bitmap;
         }
 
-        void RecordStep(const std::vector<CellCandidatePtr>& top_candidates, const CellCandidatePtr& selected) {
+        void RecordStep(const std::vector<CellCandidate*>& top_candidates, const CellCandidate* selected) {
             analysed_difficulty.RecordStep(top_candidates, selected);
             printf("recorded step num_steps = %u picked_candidate_size_sum = %f top_n_median_sum = %f\n", analysed_difficulty.get_number_of_steps(), analysed_difficulty.get_average_picked_candidate(), analysed_difficulty.get_average_median_candidates());
         }
@@ -817,8 +819,8 @@ bool Solver::WriteSolutionToOutputFile() {
 }
 
 CellCandidate* Solver::SudokuStepState::ShuffleCandidatesAndRecordStep(uint32_t shuffle_max) {
-    CellCandidate* top = nullptr;
-    std::vector<CellCandidatePtr> top_candidates;
+    std::vector<CellCandidate*> top_candidates;
+    top_candidates.reserve(shuffle_max);
     int cell_with_no_candidates = -1;
 
     for(uint32_t i = 0; i < shuffle_max; i++) {
@@ -826,25 +828,24 @@ CellCandidate* Solver::SudokuStepState::ShuffleCandidatesAndRecordStep(uint32_t 
         if (el->candidates.size() == 0) {
             cell_with_no_candidates = i;
         }
-        top_candidates.push_back(el);
+        top_candidates.push_back(el.ptr);
         pq.pop();
     }
 
-    CellCandidatePtr top_ptr;
-    if (cell_with_no_candidates == -1) {    
-        uint32_t shuffle_pick = generate_random_number_upto(shuffle_max);
-        top_ptr = top_candidates[shuffle_pick - 1];
-        top = top_ptr.ptr;
+    CellCandidate* top = nullptr;
+    if (cell_with_no_candidates == -1) {
+        uint32_t shuffle_to_idx = shuffle_max > 0 ? shuffle_max - 1 : shuffle_max;
+        uint32_t shuffle_pick = generate_random_number_upto(shuffle_to_idx);
+        top = top_candidates[shuffle_pick];
     } else {
-        top_ptr = top_candidates[cell_with_no_candidates];
-        top = top_ptr.ptr;
+        top = top_candidates[cell_with_no_candidates];
     }
 
-    solution.RecordStep(top_candidates, top_ptr);
+    solution.RecordStep(top_candidates, top);
 
     for(uint32_t i = 0; i < shuffle_max; i++) {
-        if (top_candidates[i].ptr != top) {
-            pq.push(top_candidates[i]);
+        if (top_candidates[i] != top) {
+            pq.push(CellCandidatePtr(top_candidates[i]));
         }
     }
 
