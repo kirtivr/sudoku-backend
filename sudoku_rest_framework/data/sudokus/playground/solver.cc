@@ -401,6 +401,8 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
         givens[row][col] = val;
     }
 
+    //print_sudoku_assignments(givens);
+
     std::map<uint32_t, std::pair<Point, Point>> houses;
     uint32_t house_nr = 0;
     while (house_nr < rank * rank) {

@@ -187,7 +187,7 @@ class StepDifficulty
 
         void RecordStep(const std::vector<CellCandidate*>& top_candidates, const CellCandidate* selected) {
             number_of_steps += 1;
-            printf("\tDebug: note a fixed cost per step %lu has been added for the picked cell and sampling median\n", cost_of_doing_a_step);
+            printf("\tDebug: note a fixed cost per step %u has been added for the picked cell and sampling median\n", cost_of_doing_a_step);
             printf("\tDebug: picked cell candidate set size is %lu\n", selected->candidates.size());
             picked_cell_candidates_sum += (selected->candidates.size() + cost_of_doing_a_step);
             for (const auto& x : top_candidates) {
@@ -588,6 +588,8 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
         givens[row][col] = val;
     }
 
+    //print_sudoku_assignments(givens);
+
     std::map<uint32_t, std::pair<Point, Point>> houses;
     uint32_t house_nr = 0;
     while (house_nr < rank * rank) {
@@ -621,10 +623,13 @@ public:
     void SolveSudoku() {
         //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         //std::cout<< "Thread ID is " << std::this_thread::get_id() << std::endl;
-        SolveSudokuAndRecurse(solver_state.get());
-        //std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-        //std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << std::endl;
-        found_solutions.push_back(solver_state->get_solution());
+        for (uint32_t i = 0; i < num_iterations; i++) {
+            SolveSudokuAndRecurse(solver_state.get());
+            //std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+            //std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << std::endl;
+            found_solutions.push_back(solver_state->get_solution());
+            solver_state->Reset();
+        }
 
         if (found_solutions.size() > 0) {
             printf("Found solution: \n");
@@ -700,14 +705,20 @@ private:
                 pq.push(CellCandidatePtr{.ptr = cell});
             }
 
+            void Reset() {
+                if (!revert_updates.empty()) {
+                    printf("Something is wrong, revert_updates should be empty before Reset()\n");
+                }
+                revert_updates.clear();
+                BuildPriorityQueue();
+                solution = SudokuSolution(SudokuSolution(sudoku_ptr->get_sudoku_id(), sudoku_ptr->get_givens()));
+            }
+
             SudokuStepState(std::map<Point, CellCandidate> candidates,
                             ParsedSudoku* sudoku, uint32_t randomness) : solution(SudokuSolution(sudoku->get_sudoku_id(), sudoku->get_givens())) {
                 this->randomness = randomness;
                 pq_map = std::move(candidates);
-                for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
-                    CellCandidate* cell = &it->second;
-                    pq.push(CellCandidatePtr{.ptr = cell});
-                }
+                BuildPriorityQueue();
                 sudoku_ptr = sudoku;
                 for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
                     adjacent_points.insert({it->first, get_adjacent_points(it->first, sudoku_ptr->get_houses())});
@@ -724,7 +735,7 @@ private:
                 }
                 while (count < N) {
                     auto& top = pq.top();
-                    printf("[%u, %u] : size = %lu\n", top.ptr->row, top.ptr->col, top.ptr->candidates.size());
+                    printf("[%u, %u] : ptr: %p size = %lu\n", top.ptr->row, top.ptr->col, top.ptr, top.ptr->candidates.size());
                     popped.push_back(top);
                     pq.pop();
                     count++;
@@ -742,7 +753,25 @@ private:
                 // std::cout << std::endl;
             }
 
+            // Do not ask why I have to write this. Hint: gdb.
+            void __attribute__ ((noinline)) print_map() {
+                for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
+                    const Point& p = it->first;
+                    CellCandidate* cell = &it->second;
+                    std::cout << "Key : " << p << " Cell Ptr = " << cell << " Candidates = ";
+                    print_set<uint32_t>(cell->candidates);
+                }
+            }
         private:
+            void BuildPriorityQueue() {
+                pq = std::priority_queue<CellCandidatePtr>();
+                for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
+                    CellCandidate* cell = &it->second;
+                    //std::cout<< "In BuildPriorityQueue for point " << it->first << " Cell pointer is " << cell << std::endl;
+                    pq.push(CellCandidatePtr{.ptr = cell});
+                }
+                //print_priority_queue(pq.size());
+            }
             CellCandidate* ShuffleCandidatesAndRecordStep(uint32_t shuffle_max);
             void UndoUpdateToAdjacentHouses(CellCandidate* cell, uint32_t value_to_be_readded);
             void UpdateAdjacentHouses(CellCandidate* cell, uint32_t value);
@@ -841,6 +870,7 @@ CellCandidate* Solver::SudokuStepState::ShuffleCandidatesAndRecordStep(uint32_t 
         top = top_candidates[cell_with_no_candidates];
     }
 
+    //std::cout << "Top cell has ptr " << top << std::endl;
     solution.RecordStep(top_candidates, top);
 
     for(uint32_t i = 0; i < shuffle_max; i++) {
@@ -861,6 +891,9 @@ void Solver::SudokuStepState::UndoUpdateToAdjacentHouses(CellCandidate* cell, ui
         // What were the updates made by cell at cell_coord, and to which points.
         for (auto& [x_value, x_coord] : re_add_set) {
             //std::cout<< "CellCandidate " << cell_coord << " was reverted " << value_to_be_readded << " and adjacent cell " << x_coord << " was updated." << std::endl;
+            if (!pq_map.contains(x_coord)) {
+               continue;
+            }
             CellCandidate& x_cell = pq_map[x_coord];
             if (x_value != value_to_be_readded) {
                 std::cout << "ERROR: Unexpected, changed value " << x_value << " should match " << value_to_be_readded << std::endl;
@@ -882,6 +915,9 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
     //auto it = revert_updates.end();
 
     for (auto& update_coord : adj_points) {
+        if (!pq_map.contains(update_coord)) {
+            continue;
+        }
         auto& update_cell = pq_map[update_coord];
         // Assigned value was a candidate for this cell.
         if (update_cell.candidates.contains(value)) {
@@ -914,7 +950,9 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
 
 void Solver::SolveSudokuAndRecurse(SudokuStepState* state) {
     CellCandidate* optimal_next_cell = state->PopAndGetOptimalNextCell();
+    //state->print_map();
     if (optimal_next_cell == nullptr) {
+        //std::cout << "no optimal next cell\n";
         state->get_solution().update_outcome(true);
         return;
     }
