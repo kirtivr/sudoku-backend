@@ -1,5 +1,5 @@
 /*
- * C++ Program to solve a sudoku and analyse:
+ * C++ Program to solve a sudoku and analyze:
  *   1. Whether the solution is unique.
  *   2. How difficult is the sudoku.
  * 
@@ -235,12 +235,12 @@ class SudokuSolution
 {
     public:
         SudokuSolution(uint32_t sudoku_id, const std::vector<std::vector<uint32_t>>& givens):
-            sudoku_id(sudoku_id), num_successful_outcomes(0), num_failed_outcomes(0), analysed_difficulty(StepDifficulty(sudoku_id)) {
+            sudoku_id(sudoku_id), num_successful_outcomes(0), num_failed_outcomes(0), analyzed_difficulty(StepDifficulty(sudoku_id)) {
             copy_bitmap(givens, get_assignments());
         }
 
         StepDifficulty& get_difficulty() {
-            return analysed_difficulty;
+            return analyzed_difficulty;
         }
 
         void update_assignment(uint32_t row, uint32_t col, uint32_t value) {
@@ -256,8 +256,8 @@ class SudokuSolution
         }
 
         void RecordStep(const std::vector<CellCandidate*>& top_candidates, const CellCandidate* selected) {
-            analysed_difficulty.RecordStep(top_candidates, selected);
-            printf("recorded step num_steps = %u picked_candidate_size_sum = %f top_n_median_sum = %f\n", analysed_difficulty.get_number_of_steps(), analysed_difficulty.get_average_picked_candidate(), analysed_difficulty.get_average_median_candidates());
+            analyzed_difficulty.RecordStep(top_candidates, selected);
+            printf("recorded step num_steps = %u picked_candidate_size_sum = %f top_n_median_sum = %f\n", analyzed_difficulty.get_number_of_steps(), analyzed_difficulty.get_average_picked_candidate(), analyzed_difficulty.get_average_median_candidates());
         }
 
         void update_outcome (bool success) {
@@ -295,7 +295,7 @@ class SudokuSolution
         std::vector<std::vector<std::vector<uint32_t>>> solved_bitmap;
         uint32_t num_successful_outcomes;
         uint32_t num_failed_outcomes;
-        StepDifficulty analysed_difficulty;
+        StepDifficulty analyzed_difficulty;
 };
 
 typedef struct Point {
@@ -609,6 +609,110 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
         std::move(houses)));
 }
 
+class SudokuAnalysis {
+    public:
+        SudokuAnalysis(std::vector<SudokuSolution>&& solutions) : N(solutions.size()), solutions(std::move(solutions)) {}
+
+    protected:
+        void Compute() {
+            for (auto i = 0; i < N; i++) {
+                auto& s = solutions[i];
+                double s2f_ratio = s.get_num_successful_outcomes()/s.get_num_failed_outcomes();
+                failure_to_success_ratios.push_back(s2f_ratio);
+                candidates_for_picked_cell.push_back(s.get_difficulty().get_average_picked_candidate());
+                median_of_candidates_for_cell.push_back(s.get_difficulty().get_average_median_candidates());
+            }
+
+            double total_s2f_ratio = std::accumulate(failure_to_success_ratios.begin(), failure_to_success_ratios.end(), 0);
+            avg_failure_to_success_ratio = total_s2f_ratio/N;
+            double total_picked_cell = std::accumulate(candidates_for_picked_cell.begin(), candidates_for_picked_cell.end(), 0);
+            avg_candidates_for_picked_cell = total_picked_cell/N;
+            double total_median_candidates = std::accumulate(median_of_candidates_for_cell.begin(), median_of_candidates_for_cell.end(), 0);
+            avg_median_of_candidates_for_cell = total_median_candidates/N;
+        }
+        bool get_has_unique_solution() {
+            return unique_solution;
+        }
+        std::vector<double> get_success_failure_ratios()  {
+            return failure_to_success_ratios;
+        }
+        double get_avg_success_failure_ratio() {
+            return avg_failure_to_success_ratio;
+        }
+        std::vector<double> get_candidates_for_picked_cell() {
+            return candidates_for_picked_cell;
+        }
+        double get_avg_candidates_for_picked_cell() {
+            return avg_candidates_for_picked_cell;
+        }
+        std::vector<double> get_median_of_candidates_for_cell() {
+            return median_of_candidates_for_cell;
+        }
+        double get_avg_median_of_candidates_for_cell() {
+            return avg_median_of_candidates_for_cell;
+        }
+        std::vector<SudokuSolution>& get_all_solutions() {
+            return solutions;
+        }
+
+    private:
+        std::size_t N;
+        bool unique_solution = true;
+        std::vector<double> failure_to_success_ratios;
+        double avg_failure_to_success_ratio;
+        std::vector<double> candidates_for_picked_cell;
+        double avg_candidates_for_picked_cell;
+        std::vector<double> median_of_candidates_for_cell;
+        double avg_median_of_candidates_for_cell;
+        std::vector<SudokuSolution> solutions;
+};
+
+class FancyDecorator : public SudokuAnalysis {
+    public:
+        FancyDecorator(std::vector<SudokuSolution>&& solutions) : SudokuAnalysis(std::move(solutions)) {}
+
+        template <typename ... Args>
+        auto call(std::string method_name, Args&& ... args) {
+            if (!computed) {
+                SudokuAnalysis::Compute();
+                computed = true;
+            }
+
+            switch (method_name) {
+                case "get_has_unique_solution":
+                    SudokuAnalysis::get_has_unique_solution(std::forward<Args>(args)...);
+                    break;
+                case "get_success_failure_ratios":
+                    SudokuAnalysis::get_success_failure_ratios(std::forward<Args>(args)...);
+                    break;
+                case "get_avg_success_failure_ratio":
+                    SudokuAnalysis::get_avg_success_failure_ratio(std::forward<Args>(args)...);
+                    break;
+                case "get_candidates_for_picked_cell":
+                    SudokuAnalysis::get_candidates_for_picked_cell(std::forward<Args>(args)...);
+                    break;
+                case "get_avg_candidates_for_picked_cell":
+                    SudokuAnalysis::get_avg_candidates_for_picked_cell(std::forward<Args>(args)...);
+                    break;
+                case "get_median_of_candidates_for_cell":
+                    SudokuAnalysis::get_median_of_candidates_for_cell(std::forward<Args>(args)...);
+                    break;
+                case "get_avg_median_of_candidates_for_cell":
+                    SudokuAnalysis::get_avg_median_of_candidates_for_cell(std::forward<Args>(args)...);
+                    break;
+                case "get_all_solutions":
+                    SudokuAnalysis::get_all_solutions(std::forward<Args>(args)...);
+                    break;
+                default:
+                    printf("Invalid method name : %s\n", method_name.c_str());
+                    break;
+            }
+        }
+
+    private:
+        bool computed = false;
+};
+
 class Solver
 {
     // Strategy
@@ -624,6 +728,8 @@ public:
         //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         //std::cout<< "Thread ID is " << std::this_thread::get_id() << std::endl;
         for (uint32_t i = 0; i < num_iterations; i++) {
+            std::cout << "Iteration number " << i << std::endl;
+            std::cout << "----------------------------------------------------------" << std::endl;
             SolveSudokuAndRecurse(solver_state.get());
             //std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
             //std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << std::endl;
@@ -631,25 +737,7 @@ public:
             solver_state->Reset();
         }
 
-        if (found_solutions.size() > 0) {
-            printf("Found solution: \n");
-            for (auto& solution : found_solutions) {
-                const auto& solved_bitmaps = solution.get_solved_bitmaps();
-                for (const auto& solved : solved_bitmaps) {
-                    print_sudoku_assignments(solved);
-                }
-
-                printf("\nDifficulty metrics\n");
-                printf("Successful outcomes : %u\n", solution.get_num_successful_outcomes());
-                printf("Failed outcomes : %u\n", solution.get_num_failed_outcomes());
-                const auto& difficulty = solution.get_difficulty();
-                printf("Number of steps : %u\n", difficulty.get_number_of_steps());
-                printf("Average candidate size for picked candidate : %f\n", difficulty.get_average_picked_candidate());
-                printf("Average median candidate size : %f\n", difficulty.get_average_median_candidates());
-                printf("\n\n");
-            }
-            // WriteSolutionToOutputFile();
-        }        
+        AnalyzeSolutions();
     }
 
     Solver(std::unique_ptr<ParsedSudoku> sudoku, fs::path output_folder,
@@ -735,7 +823,7 @@ private:
                 }
                 while (count < N) {
                     auto& top = pq.top();
-                    printf("[%u, %u] : ptr: %p size = %lu\n", top.ptr->row, top.ptr->col, top.ptr, top.ptr->candidates.size());
+                    printf("[%u, %u] : ptr: %p size = %lu\n", top.ptr->row, top.ptr->col, (void*)top.ptr, top.ptr->candidates.size());
                     popped.push_back(top);
                     pq.pop();
                     count++;
@@ -807,7 +895,7 @@ private:
     };
 
     void SolveSudokuAndRecurse(SudokuStepState* state);
-    bool SolutionIsUnique();
+    std::unique_ptr<FancyDecorator> AnalyzeSolutions();
     bool WriteSolutionToOutputFile();
     void BuildInitialSudokuState() {
         auto cell_candidates = ComputeInitialCandidates(sudoku->get_rank(), sudoku->get_givens(), sudoku->get_houses());
@@ -822,8 +910,26 @@ private:
     std::vector<SudokuSolution> found_solutions;
 };
 
-bool Solver::SolutionIsUnique() {
-    return true;
+std::unique_ptr<FancyDecorator> Solver::AnalyzeSolutions() {
+    if (found_solutions.size() > 0) {
+        printf("Found solution: \n");
+        for (auto& solution : found_solutions) {
+            const auto& solved_bitmaps = solution.get_solved_bitmaps();
+            for (const auto& solved : solved_bitmaps) {
+                print_sudoku_assignments(solved);
+            }
+
+            printf("\nDifficulty metrics\n");
+            printf("Successful outcomes : %u\n", solution.get_num_successful_outcomes());
+            printf("Failed outcomes : %u\n", solution.get_num_failed_outcomes());
+            const auto& difficulty = solution.get_difficulty();
+            printf("Number of steps : %u\n", difficulty.get_number_of_steps());
+            printf("Average candidate size for picked candidate : %f\n", difficulty.get_average_picked_candidate());
+            printf("Average median candidate size : %f\n", difficulty.get_average_median_candidates());
+            printf("\n\n");
+        }
+        // WriteSolutionToOutputFile();
+    }
 }
 
 bool Solver::WriteSolutionToOutputFile() {
@@ -1015,7 +1121,7 @@ std::vector<std::unique_ptr<ParsedSudoku>> ParseSudokuProblems(std::vector<fs::p
     return parsed_sudokus;
 }
 
-void AnalyseSudokus(CommandLineArgs options)
+void analyzeSudokus(CommandLineArgs options)
 {
     std::vector<fs::path> sudoku_pathnames = ReadDirectory(options.input_folder);
     std::vector<std::unique_ptr<ParsedSudoku>> parsed_sudokus = ParseSudokuProblems(sudoku_pathnames);
@@ -1066,12 +1172,12 @@ int main(int argc, char *argv[])
     if (argc < 3 || argc > 5) {
         std::cerr << "Please provide necessary command line values.\n\n";
         std::cerr << "usage: ./analyzer <input folder> <output folder> <iterations>(optional) <randomness>(optional) \n";
-        std::cerr << "Example: ./analyzer input_sudokus_folder/ sudoku_analysis_folder/ 1 0\n\n";
+        std::cerr << "Example: ./analyzer input_sudokus_folder/ sudoku_analyzis_folder/ 1 0\n\n";
         return EXIT_FAILURE;
     }
     const std::vector<std::string> args(argv + 1, argv + argc);
     auto parsed_args = parse_command_line_args(args);
     if (parsed_args.has_value()) {
-        AnalyseSudokus(*parsed_args);
+        analyzeSudokus(*parsed_args);
     }
 }
