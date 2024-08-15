@@ -28,6 +28,7 @@
 #include <random>
 #include <iterator>
 #include <chrono>
+#include <sstream>
 namespace fs = std::filesystem;
 
 typedef struct CommandLineArgs {
@@ -253,6 +254,21 @@ class SudokuSolution
 
         std::vector<std::vector<std::vector<uint32_t>>>& get_solved_bitmaps() {
             return solved_bitmap;
+        }
+
+        std::vector<std::string> solved_bitmaps_as_strings() {
+            std::vector<std::string> bitmap_str(solution.get_solved_bitmaps().size());
+            for (std::size_t i = 0; i < solved_bitmaps.size(); i++) {
+                std::sstream out;
+                auto& solved_grid = solved_bitmaps[i];
+                for (std::size_t j = 0; j < solved_grid.size(); j++) {
+                    for (std::size_t k = 0; k < solved_grid[0].size(); k++) {
+                        out << solved_grid[j][k];
+                    }
+                }
+                bitmap_str.push_back(out.str());
+            }
+            return bitmap_str;
         }
 
         void RecordStep(const std::vector<CellCandidate*>& top_candidates, const CellCandidate* selected) {
@@ -614,24 +630,53 @@ class SudokuAnalysis {
         SudokuAnalysis(std::vector<SudokuSolution>&& solutions) : N(solutions.size()), solutions(std::move(solutions)) {}
 
     protected:
+        std::set<std::string> unique_solutions_in_iteration(const SudokuSolution& s) {
+            const auto& solved_bitmaps = solution.get_solved_bitmaps();
+            std::vector<std::string> bitmap_str = solution.solved_bitmaps_as_strings();
+            std::set<std::string> unique_solutions;
+            for (std::string& el : bitmap_str) {
+                unique_solutions.insert(el);
+            }
+            return unique_solutions;
+        }
         void Compute() {
-            for (auto i = 0; i < N; i++) {
+            for (std::size_t i = 0; i < N; i++) {
                 auto& s = solutions[i];
-                double s2f_ratio = s.get_num_successful_outcomes()/s.get_num_failed_outcomes();
-                failure_to_success_ratios.push_back(s2f_ratio);
+                number_of_steps.push_back(s.get_difficulty().get_number_of_steps());
+                double f2s_ratio = s.get_num_failed_outcomes()/s.get_num_successful_outcomes();
+                failure_to_success_ratios.push_back(f2s_ratio);
                 candidates_for_picked_cell.push_back(s.get_difficulty().get_average_picked_candidate());
                 median_of_candidates_for_cell.push_back(s.get_difficulty().get_average_median_candidates());
+                auto it_unique = unique_solutions_in_iteration(s);
+                all_unique_solutions.insert(it_unique.begin(), it_unique.end());
             }
 
-            double total_s2f_ratio = std::accumulate(failure_to_success_ratios.begin(), failure_to_success_ratios.end(), 0);
-            avg_failure_to_success_ratio = total_s2f_ratio/N;
+            double total_number_of_steps = std::accumulate(number_of_steps.begin(), number_of_steps.end(), 0);
+            avg_number_of_steps = total_number_of_steps/N;
+            double total_f2s_ratio = std::accumulate(failure_to_success_ratios.begin(), failure_to_success_ratios.end(), 0);
+            avg_failure_to_success_ratio = total_f2s_ratio/N;
             double total_picked_cell = std::accumulate(candidates_for_picked_cell.begin(), candidates_for_picked_cell.end(), 0);
             avg_candidates_for_picked_cell = total_picked_cell/N;
             double total_median_candidates = std::accumulate(median_of_candidates_for_cell.begin(), median_of_candidates_for_cell.end(), 0);
             avg_median_of_candidates_for_cell = total_median_candidates/N;
         }
+        double calculate_sudoku_difficulty() {
+            return 0.0;
+        }
+        std::string serialize_to_string() {
+
+        }
+        std::set<std::string>& get_all_unique_solution()s {
+            return all_unique_solutions;
+        }
         bool get_has_unique_solution() {
-            return unique_solution;
+            return all_unique_solutions.size() == 1;
+        }
+        std::vector<double> get_number_of_steps()  {
+            return number_of_steps;
+        }
+        double get_avg_number_of_steps() {
+            return avg_number_of_steps;
         }
         std::vector<double> get_success_failure_ratios()  {
             return failure_to_success_ratios;
@@ -657,7 +702,9 @@ class SudokuAnalysis {
 
     private:
         std::size_t N;
-        bool unique_solution = true;
+        std::set<std::string> all_unique_solutions;
+        std::vector<double> number_of_steps;
+        double avg_number_of_steps;
         std::vector<double> failure_to_success_ratios;
         double avg_failure_to_success_ratio;
         std::vector<double> candidates_for_picked_cell;
