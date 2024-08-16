@@ -237,6 +237,14 @@ class SudokuSolution
     public:
         SudokuSolution(uint32_t sudoku_id, const std::vector<std::vector<uint32_t>>& givens):
             sudoku_id(sudoku_id), num_successful_outcomes(0), num_failed_outcomes(0), analyzed_difficulty(StepDifficulty(sudoku_id)) {
+            uint32_t num_cells = givens.size() * givens[0].size();
+            uint32_t num_givens = 0;
+            for (std::size_t j = 0; j < givens.size(); j++) {
+                for (std::size_t k = 0; k < givens[0].size(); k++) {
+                    num_givens++;
+                }
+            }
+            givens_to_empty_ratio = (double)num_givens/(num_cells - num_givens);
             copy_bitmap(givens, get_assignments());
         }
 
@@ -296,6 +304,10 @@ class SudokuSolution
             return num_failed_outcomes;
         }
 
+        double get_givens_to_empty_ratio() const {
+            return givens_to_empty_ratio;
+        }
+
     private:
         void copy_bitmap(const std::vector<std::vector<uint32_t>>& givens, std::vector<std::vector<uint32_t>>& to_update) {
             for (uint32_t i = 0; i < givens.size(); i++) {
@@ -307,6 +319,7 @@ class SudokuSolution
         }
 
         uint32_t sudoku_id;
+        double givens_to_empty_ratio;
         std::vector<std::vector<uint32_t>> assignments;
         std::vector<std::vector<std::vector<uint32_t>>> solved_bitmap;
         uint32_t num_successful_outcomes;
@@ -642,6 +655,8 @@ class SudokuAnalysis {
         void Compute() {
             for (std::size_t i = 0; i < N; i++) {
                 auto& s = solutions[i];
+                sudoku_id = s.get_sudoku_id();
+                givens_to_empty_ratio = s.get_givens_to_empty_ratio();
                 number_of_steps.push_back(s.get_difficulty().get_number_of_steps());
                 double f2s_ratio = s.get_num_failed_outcomes()/s.get_num_successful_outcomes();
                 failure_to_success_ratios.push_back(f2s_ratio);
@@ -660,17 +675,42 @@ class SudokuAnalysis {
             double total_median_candidates = std::accumulate(median_of_candidates_for_cell.begin(), median_of_candidates_for_cell.end(), 0);
             avg_median_of_candidates_for_cell = total_median_candidates/N;
         }
-        double calculate_sudoku_difficulty() {
-            return 0.0;
+        
+        void json_add_field(std::string_view key, std::string_view value, std::sstream& s) {
+            s << key << " : " << value << ",\n";
         }
-        std::string serialize_to_string() {
 
+        void json_add_array_field(std::string_view key, std::vector<std::string>& value, std::sstream& s) {
+            s << key << " : " << " [";
+            for (uint32_t i = 0; i < value.size(); i++) {
+                s << value[i];
+                if (i < value.size() - 1) {
+                    s << ", "
+                }
+            }
+            s << "],\n";
         }
-        std::set<std::string>& get_all_unique_solution()s {
+
+        std::string serialize_to_json_string() const {
+            std::sstream o;
+            o << "{";
+            json_add_field("id", sudoku_id, o);
+            json_add_field("givens_to_empty_ratio", givens_to_empty_ratio, o);
+            json_add_array_field("unique_solutions", all_unique_solutions, o);
+            json_add_field("avg_number_of_steps", avg_number_of_steps, o);
+            json_add_field("avg_failure_to_success_ratio", avg_failure_to_success_ratio, o);
+            json_add_field("avg_candidates_for_picked_cell", avg_candidates_for_picked_cell, o);
+            json_add_field("avg_median_of_candidates_for_cell", avg_median_of_candidates_for_cell, o);
+            o << "}";
+        }
+        std::set<std::string>& get_all_unique_solutions() {
             return all_unique_solutions;
         }
         bool get_has_unique_solution() {
             return all_unique_solutions.size() == 1;
+        }
+        double get_givens_to_empty_ratio()  {
+            return givens_to_empty_ratio;
         }
         std::vector<double> get_number_of_steps()  {
             return number_of_steps;
@@ -702,9 +742,11 @@ class SudokuAnalysis {
 
     private:
         std::size_t N;
+        uint32_t sudoku_id;
         std::set<std::string> all_unique_solutions;
         std::vector<double> number_of_steps;
         double avg_number_of_steps;
+        double givens_to_empty_ratio;
         std::vector<double> failure_to_success_ratios;
         double avg_failure_to_success_ratio;
         std::vector<double> candidates_for_picked_cell;
@@ -717,7 +759,7 @@ class SudokuAnalysis {
 class FancyDecorator : public SudokuAnalysis {
     public:
         FancyDecorator(std::vector<SudokuSolution>&& solutions) : SudokuAnalysis(std::move(solutions)) {}
-
+        
         template <typename ... Args>
         auto call(std::string method_name, Args&& ... args) {
             if (!computed) {
@@ -727,28 +769,34 @@ class FancyDecorator : public SudokuAnalysis {
 
             switch (method_name) {
                 case "get_has_unique_solution":
-                    SudokuAnalysis::get_has_unique_solution(std::forward<Args>(args)...);
+                    return SudokuAnalysis::get_has_unique_solution(std::forward<Args>(args)...);
+                    break;
+                case "get_all_unique_solutions":
+                    return SudokuAnalysis::get_all_unique_solutions(std::forward<Args>(args)...);
                     break;
                 case "get_success_failure_ratios":
-                    SudokuAnalysis::get_success_failure_ratios(std::forward<Args>(args)...);
+                    return SudokuAnalysis::get_success_failure_ratios(std::forward<Args>(args)...);
                     break;
                 case "get_avg_success_failure_ratio":
-                    SudokuAnalysis::get_avg_success_failure_ratio(std::forward<Args>(args)...);
+                    return SudokuAnalysis::get_avg_success_failure_ratio(std::forward<Args>(args)...);
                     break;
                 case "get_candidates_for_picked_cell":
-                    SudokuAnalysis::get_candidates_for_picked_cell(std::forward<Args>(args)...);
+                    return SudokuAnalysis::get_candidates_for_picked_cell(std::forward<Args>(args)...);
                     break;
                 case "get_avg_candidates_for_picked_cell":
-                    SudokuAnalysis::get_avg_candidates_for_picked_cell(std::forward<Args>(args)...);
+                    return SudokuAnalysis::get_avg_candidates_for_picked_cell(std::forward<Args>(args)...);
                     break;
                 case "get_median_of_candidates_for_cell":
-                    SudokuAnalysis::get_median_of_candidates_for_cell(std::forward<Args>(args)...);
+                    return SudokuAnalysis::get_median_of_candidates_for_cell(std::forward<Args>(args)...);
                     break;
                 case "get_avg_median_of_candidates_for_cell":
-                    SudokuAnalysis::get_avg_median_of_candidates_for_cell(std::forward<Args>(args)...);
+                    return SudokuAnalysis::get_avg_median_of_candidates_for_cell(std::forward<Args>(args)...);
                     break;
-                case "get_all_solutions":
-                    SudokuAnalysis::get_all_solutions(std::forward<Args>(args)...);
+                case "get_givens_to_empty_ratio":
+                    return SudokuAnalysis::get_givens_to_empty_ratio(std::forward<Args>(args)...);
+                    break;
+                case "serialize_to_json_string":
+                    return SudokuAnalysis::serialize_to_json_string(std::forward<Args>(args)...);
                     break;
                 default:
                     printf("Invalid method name : %s\n", method_name.c_str());
@@ -957,46 +1005,29 @@ private:
     std::vector<SudokuSolution> found_solutions;
 };
 
-std::unique_ptr<FancyDecorator> Solver::AnalyzeSolutions() {
-    if (found_solutions.size() > 0) {
-        printf("Found solution: \n");
-        for (auto& solution : found_solutions) {
-            const auto& solved_bitmaps = solution.get_solved_bitmaps();
-            for (const auto& solved : solved_bitmaps) {
-                print_sudoku_assignments(solved);
-            }
+void Solver::AnalyzeSolutions() {
+    std::unique_ptr<FancyDecorator> analyzer = std::make_unique<FancyDecorator>(std::move(found_solutions));
 
-            printf("\nDifficulty metrics\n");
-            printf("Successful outcomes : %u\n", solution.get_num_successful_outcomes());
-            printf("Failed outcomes : %u\n", solution.get_num_failed_outcomes());
-            const auto& difficulty = solution.get_difficulty();
-            printf("Number of steps : %u\n", difficulty.get_number_of_steps());
-            printf("Average candidate size for picked candidate : %f\n", difficulty.get_average_picked_candidate());
-            printf("Average median candidate size : %f\n", difficulty.get_average_median_candidates());
-            printf("\n\n");
-        }
-        // WriteSolutionToOutputFile();
+    auto& unique_solutions = analyzer.call("get_all_unique_solutions");
+    for (auto& solution : unique_solutions) {
+        std::cout << solution << std::endl;
     }
+    printf("\nDifficulty metrics\n");
+    printf("givens_to_empty_ratio %f\n", analyzer.call("givens_to_empty_ratio"));
+    printf("avg_number_of_steps %f\n", analyzer.call("avg_number_of_steps"));
+    printf("avg_failure_to_success_ratio %f\n", analyzer.call("avg_failure_to_success_ratio"));
+    printf("avg_candidates_for_picked_cell %f\n", analyzer.call("avg_candidates_for_picked_cell"));
+    printf("avg_median_of_candidates_for_cell %f\n", analyzer.call("avg_median_of_candidates_for_cell"));
+    WriteToOutputFile(analyzer.call("serialize_to_json_string"));
 }
 
-bool Solver::WriteSolutionToOutputFile() {
-/*    std::ofstream output_file;
-    fs::path out_file (std::to_string(sudoku->get_sudoku_id()) + ".csv");
+bool Solver::WriteToOutputFile(std::string json_stats) {
+    std::ofstream output_file;
+    fs::path out_file (std::to_string(sudoku->get_sudoku_id()) + ".json");
     fs::path output_path = solution_file_path / out_file;
-    output_file.open (output_path);
-
-    std::string output = "";
-    for (auto& solution : found_solutions) {
-        for (uint32_t i = 0; i < solution.assignments.size(); i++) {
-                for (uint32_t j = 0; j < solution.assignments[0].size(); j++) {
-                    output = output + std::to_string(solution.assignments[i][j]);
-                }
-            }
-        output_file << output << "\n";
-        output = "";
-    }
+    output_file.open(output_path);
+    output_file << json_stats;
     output_file.close();
-    */
     return true;
 }
 
