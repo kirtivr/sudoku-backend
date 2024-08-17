@@ -713,8 +713,12 @@ class SudokuAnalysis {
                 sudoku_id = s.get_sudoku_id();
                 givens_to_empty_ratio = s.get_givens_to_empty_ratio();
                 number_of_steps.push_back(s.get_difficulty().get_number_of_steps());
-                //double f2s_ratio = s.get_num_failed_outcomes()/s.get_num_successful_outcomes();
-                //failure_to_success_ratios.push_back(f2s_ratio);
+                if (s.get_num_successful_outcomes() > 0) {
+                    double f2s_ratio = s.get_num_failed_outcomes()/s.get_num_successful_outcomes();
+                    failure_to_success_ratios.push_back(f2s_ratio);
+                } else {
+                    failure_to_success_ratios.push_back(s.get_num_failed_outcomes());
+                }
                 candidates_for_picked_cell.push_back(s.get_difficulty().get_average_picked_candidate());
                 median_of_candidates_for_cell.push_back(s.get_difficulty().get_average_median_candidates());
                 auto it_unique = unique_solutions_in_iteration(s);
@@ -1116,9 +1120,7 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
         std::cout << "ERROR: Cell at " << cell_coord << " has already been traversed in DFS" << std::endl;
     }
 
-    // This can probably be pre-computed.
     std::set<Point>& adj_points = adjacent_points[cell_coord];
-    //auto it = revert_updates.end();
 
     for (auto& update_coord : adj_points) {
         if (!pq_map.contains(update_coord)) {
@@ -1155,6 +1157,7 @@ void Solver::SudokuStepState::UpdateAdjacentHouses(CellCandidate* cell, uint32_t
 }
 
 void Solver::SolveSudokuAndRecurse(SudokuStepState* state) {
+    //state->print_priority_queue(5);
     CellCandidate* optimal_next_cell = state->PopAndGetOptimalNextCell();
     //state->print_map();
     if (optimal_next_cell == nullptr) {
