@@ -100,7 +100,20 @@ std::ostream& operator<<(std::ostream& out, const std::set<T>& set)
         out << ", " << element;
     });
     return out << " ]";
-}        
+}
+
+template<typename T>
+std::ostream& operator<<(std::ostream& out, const std::vector<T>& vec)
+{
+    if (vec.empty())
+        return out << "[]";
+    out << "[ " << *vec.begin();
+    std::for_each(std::next(vec.begin()), vec.end(), [&out](const T& element)
+    {
+        out << ", " << element;
+    });
+    return out << " ]";
+}
 
 uint32_t generate_random_number_upto(uint32_t high) {
     std::random_device rd; // obtain a random number from hardware
@@ -201,12 +214,12 @@ class StepDifficulty
 
         void RecordStep(const std::vector<CellCandidate*>& top_candidates, const CellCandidate* selected) {
             number_of_steps += 1;
-            printf("\tDebug: note a fixed cost per step %u has been added for the picked cell and sampling median\n", cost_of_doing_a_step);
-            printf("\tDebug: picked cell candidate set size is %lu\n", selected->candidates.size());
+            //printf("\tDebug: note a fixed cost per step %u has been added for the picked cell and sampling median\n", cost_of_doing_a_step);
+            //printf("\tDebug: picked cell candidate set size is %lu\n", selected->candidates.size());
             picked_cell_candidates_sum += (selected->candidates.size() + cost_of_doing_a_step);
             for (const auto& x : top_candidates) {
                 store_counts.push_back(x->candidates.size());
-                printf("\tDebug: sampling cell candidate set size is %lu\n", x->candidates.size());
+                //printf("\tDebug: sampling cell candidate set size is %lu\n", x->candidates.size());
             }
             top_cells_num_candidates_median_sum += (median(store_counts) + cost_of_doing_a_step);
             store_counts.clear();
@@ -223,11 +236,11 @@ class StepDifficulty
         }
 
         double get_average_picked_candidate() const {
-            return (double)picked_cell_candidates_sum; /// number_of_steps;
+            return (double)picked_cell_candidates_sum / number_of_steps;
         }
 
         double get_average_median_candidates() const {
-            return (double)top_cells_num_candidates_median_sum; /// number_of_steps;
+            return (double)top_cells_num_candidates_median_sum / number_of_steps;
         }
 
     private:
@@ -254,7 +267,9 @@ class SudokuSolution
             uint32_t num_givens = 0;
             for (std::size_t j = 0; j < givens.size(); j++) {
                 for (std::size_t k = 0; k < givens[0].size(); k++) {
-                    num_givens++;
+                    if (givens[j][k] != 0) {
+                        num_givens++;
+                    }
                 }
             }
             givens_to_empty_ratio = (double)num_givens/(num_cells - num_givens);
@@ -282,7 +297,7 @@ class SudokuSolution
         }
 
         std::vector<std::string> solved_bitmaps_as_strings() {
-            std::vector<std::string> bitmap_str(get_solved_bitmaps().size());
+            std::vector<std::string> bitmap_str;
             for (std::size_t i = 0; i < solved_bitmaps.size(); i++) {
                 std::stringstream out;
                 auto& solved_grid = solved_bitmaps[i];
@@ -298,7 +313,7 @@ class SudokuSolution
 
         void RecordStep(const std::vector<CellCandidate*>& top_candidates, const CellCandidate* selected) {
             analyzed_difficulty.RecordStep(top_candidates, selected);
-            printf("recorded step num_steps = %u picked_candidate_size_sum = %f top_n_median_sum = %f\n", analyzed_difficulty.get_number_of_steps(), analyzed_difficulty.get_average_picked_candidate(), analyzed_difficulty.get_average_median_candidates());
+            // printf("recorded step num_steps = %u picked_candidate_size_sum = %f top_n_median_sum = %f\n", analyzed_difficulty.get_number_of_steps(), analyzed_difficulty.get_average_picked_candidate(), analyzed_difficulty.get_average_median_candidates());
         }
 
         void update_outcome (bool success) {
@@ -310,7 +325,7 @@ class SudokuSolution
             } else {
                 num_failed_outcomes += 1;
             }
-            printf("outcome updated success = %u failed = %u\n", num_successful_outcomes, num_failed_outcomes);
+            // printf("outcome updated success = %u failed = %u\n", num_successful_outcomes, num_failed_outcomes);
         }
 
         uint32_t get_num_successful_outcomes() const {
@@ -657,14 +672,11 @@ std::optional<std::unique_ptr<ParsedSudoku>> ParsedSudoku::ParsedSudokuFactory(f
 
 class SudokuAnalysis {
     public:
-        SudokuAnalysis(std::vector<SudokuSolution>&& solutions) : N(solutions.size()), solutions(std::move(solutions)) {}
+        SudokuAnalysis(std::vector<SudokuSolution>&& solutions) : N(solutions.size()), solutions(std::move(solutions)) {
+            SudokuAnalysis::Compute();
+        }
 
         std::string serialize_to_json_string() {
-            if (!computed) {
-                SudokuAnalysis::Compute();
-                computed = true;
-            }
-
             std::stringstream o;
             o << "{";
             json_add_field("id", sudoku_id, o);
@@ -678,6 +690,14 @@ class SudokuAnalysis {
             return o.str();
         }
 
+        void DebugAnalysisData() const {
+            std::cout << "Sudoku ID: " << sudoku_id << std::endl;
+            std::cout << "All unique solutions : " << all_unique_solutions << std::endl;
+            std::cout << "Number of steps : " << number_of_steps << std::endl;
+            std::cout << "Failure/Success ratio : " << failure_to_success_ratios << std::endl;
+            std::cout << "Candidates for picked cell : " << candidates_for_picked_cell << std::endl;
+            std::cout << "Median of candidates for cell : " << median_of_candidates_for_cell << std::endl;
+        }
     protected:
         std::set<std::string> unique_solutions_in_iteration(SudokuSolution& s) {
             std::vector<std::string> bitmap_str = s.solved_bitmaps_as_strings();
@@ -693,21 +713,21 @@ class SudokuAnalysis {
                 sudoku_id = s.get_sudoku_id();
                 givens_to_empty_ratio = s.get_givens_to_empty_ratio();
                 number_of_steps.push_back(s.get_difficulty().get_number_of_steps());
-                double f2s_ratio = s.get_num_failed_outcomes()/s.get_num_successful_outcomes();
-                failure_to_success_ratios.push_back(f2s_ratio);
+                //double f2s_ratio = s.get_num_failed_outcomes()/s.get_num_successful_outcomes();
+                //failure_to_success_ratios.push_back(f2s_ratio);
                 candidates_for_picked_cell.push_back(s.get_difficulty().get_average_picked_candidate());
                 median_of_candidates_for_cell.push_back(s.get_difficulty().get_average_median_candidates());
                 auto it_unique = unique_solutions_in_iteration(s);
                 all_unique_solutions.insert(it_unique.begin(), it_unique.end());
             }
 
-            double total_number_of_steps = std::accumulate(number_of_steps.begin(), number_of_steps.end(), 0);
+            double total_number_of_steps = std::accumulate(number_of_steps.begin(), number_of_steps.end(), 0.0);
             avg_number_of_steps = total_number_of_steps/N;
-            double total_f2s_ratio = std::accumulate(failure_to_success_ratios.begin(), failure_to_success_ratios.end(), 0);
+            double total_f2s_ratio = std::accumulate(failure_to_success_ratios.begin(), failure_to_success_ratios.end(), 0.0);
             avg_failure_to_success_ratio = total_f2s_ratio/N;
-            double total_picked_cell = std::accumulate(candidates_for_picked_cell.begin(), candidates_for_picked_cell.end(), 0);
+            double total_picked_cell = std::accumulate(candidates_for_picked_cell.begin(), candidates_for_picked_cell.end(), 0.0);
             avg_candidates_for_picked_cell = total_picked_cell/N;
-            double total_median_candidates = std::accumulate(median_of_candidates_for_cell.begin(), median_of_candidates_for_cell.end(), 0);
+            double total_median_candidates = std::accumulate(median_of_candidates_for_cell.begin(), median_of_candidates_for_cell.end(), 0.0);
             avg_median_of_candidates_for_cell = total_median_candidates/N;
         }
 
@@ -749,7 +769,6 @@ class SudokuAnalysis {
         }
 
     private:
-        bool computed = false;
         std::size_t N;
         uint32_t sudoku_id;
         std::set<std::string> all_unique_solutions;
@@ -1018,6 +1037,7 @@ private:
 
 void Solver::AnalyzeSolutions() {
     std::unique_ptr<SudokuAnalysis> analyzer = std::make_unique<SudokuAnalysis>(std::move(found_solutions));
+    analyzer->DebugAnalysisData();
     auto json = analyzer->serialize_to_json_string();
     std::cout << "Solver statistics as JSON: " << json << std::endl;
     WriteToOutputFile(json);

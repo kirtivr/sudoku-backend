@@ -1,7 +1,7 @@
 CXX=g++
 IDIR=.
-CFLAGS=-I$(IDIR) -Wall -pedantic -g
-CXXFLAGS=-std=c++20 -fsanitize=address
+CFLAGS=-I$(IDIR) -pedantic -g
+CXXFLAGS=-std=c++20 -fsanitize=address -fsanitize=undefined 
 LIBS=-lm
 
 DEPS= $(patsubst %,$(IDIR)/%,$(_DEPS))
