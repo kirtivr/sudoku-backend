@@ -1,0 +1,9 @@
+{"id" : 1090,
+"original_sudoku" : "004030000500000000000904700010075804060000200240001000900000010020006007001050008",
+"givens_to_empty_ratio" : 0.421053,
+"unique_solutions" : [ "694537182537812946182964735319275864768493251245681379956728413823146597471359628" ],
+"avg_number_of_steps" : 8971,
+"avg_failure_to_success_ratio" : 2069.4,
+"avg_candidates_for_picked_cell" : 4,
+"avg_median_of_candidates_for_cell" : 4.18971
+}
