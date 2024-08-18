@@ -1,6 +1,6 @@
 import os
 
-OUT_FOLDER = "parsed_sudokus"
+OUT_FOLDER = "easy_sudokus"
 
 def analyze_input_file(input_file):
     num_sudokus = 0
@@ -23,14 +23,16 @@ def chunk_input_lines(input_file):
     carry = ''
     for line in lines:
         line = line.strip()
+        if len(line) == 0:
+            continue
         effective_line = carry + line
         #print(line)
         if len(effective_line) < 81:
-            print("Unexpected input length")
+            print("Unexpected input length " + str(len(effective_line)))
             break
         chunks.append(effective_line[:81])
         length = len(effective_line)
-        right_unused = length - 81;
+        right_unused = length - 81
         carry = line[81:]
 
     return chunks
@@ -44,7 +46,7 @@ def generate_sudoku_string(line):
     for row in range(0, 9):
         for column in range(0, 9):
             c = line[row * 9 + column]
-            if c == '.':
+            if c == '.' or c == '0':
                 continue
             if not first_st:
                 sudoku_string += ','
@@ -74,4 +76,4 @@ def parseAll(sudoku_file):
         print(generate_sudoku_strings(input_file))
 
 if __name__ == '__main__':
-    print(parseAll("hard_sudokus"))
+    print(parseAll("easy_sudokus_"))
