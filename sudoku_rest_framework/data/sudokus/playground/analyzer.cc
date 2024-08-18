@@ -29,6 +29,7 @@
 #include <iterator>
 #include <chrono>
 #include <sstream>
+#include <type_traits>
 namespace fs = std::filesystem;
 
 typedef struct CommandLineArgs {
@@ -94,10 +95,11 @@ std::ostream& operator<<(std::ostream& out, const std::set<T>& set)
 {
     if (set.empty())
         return out << "[]";
-    out << "[ " << *set.begin();
-    std::for_each(std::next(set.begin()), set.end(), [&out](const T& element)
+    bool str_type = std::is_same_v<std::remove_cvref_t<T>, std::string>;
+    str_type ? out << "[ " << "\"" << *set.begin() << "\"" : out << "[ " << *set.begin();
+    std::for_each(std::next(set.begin()), set.end(), [&](const T& element)
     {
-        out << ", " << element;
+        str_type ? (out << ", " << "\"" << element << "\"") : (out << ", " << element);
     });
     return out << " ]";
 }
@@ -107,10 +109,11 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& vec)
 {
     if (vec.empty())
         return out << "[]";
-    out << "[ " << *vec.begin();
-    std::for_each(std::next(vec.begin()), vec.end(), [&out](const T& element)
+    bool str_type = std::is_same_v<std::remove_cvref_t<T>, std::string>;
+    str_type ? out << "[ " << "\"" << *vec.begin() << "\"" : out << "[ " << *vec.begin();
+    std::for_each(std::next(vec.begin()), vec.end(), [&](const T& element)
     {
-        out << ", " << element;
+        str_type ? (out << ", " << "\"" << element << "\"") : (out << ", " << element);
     });
     return out << " ]";
 }
@@ -272,6 +275,7 @@ class SudokuSolution
                     }
                 }
             }
+            this->givens = givens_as_string(givens);
             givens_to_empty_ratio = (double)num_givens/(num_cells - num_givens);
             copy_bitmap(givens, get_assignments());
         }
@@ -290,6 +294,10 @@ class SudokuSolution
 
         std::vector<std::vector<uint32_t>>& get_assignments() {
             return assignments;
+        }
+
+        std::string get_givens() {
+            return givens;
         }
 
         std::vector<std::vector<std::vector<uint32_t>>>& get_solved_bitmaps() {
@@ -350,9 +358,22 @@ class SudokuSolution
             }
         }
 
+        std::string givens_as_string(const std::vector<std::vector<uint32_t>>& givens) {
+            std::stringstream out;
+            out << "\"";
+            for (std::size_t j = 0; j < givens.size(); j++) {
+                for (std::size_t k = 0; k < givens[0].size(); k++) {
+                    out << givens[j][k];
+                }
+            }
+            out << "\"";
+            return out.str();
+        }
+
         uint32_t sudoku_id;
         double givens_to_empty_ratio;
         std::vector<std::vector<uint32_t>> assignments;
+        std::string givens;
         std::vector<std::vector<std::vector<uint32_t>>> solved_bitmaps;
         uint32_t num_successful_outcomes;
         uint32_t num_failed_outcomes;
@@ -485,14 +506,6 @@ std::set<Point> get_adjacent_points(const Point& coord, std::map<uint32_t, std::
     return adj_points;
 }
 
-template <typename T>
-void print_set(std::set<T> to_print) {
-    for (auto& x : to_print) {
-        std::cout << x << ", ";
-    }
-    std::cout << std::endl;
-}
-
 CellCandidate CreateCellCandidate(uint32_t row, uint32_t col, std::set<uint32_t> possibles, std::map<uint32_t, std::pair<Point, Point>> houses) {
     uint32_t house = get_house_for_cell(row, col, houses);
     return {
@@ -522,14 +535,14 @@ ComputeInitialCandidates(uint32_t rank,
             }
             std::set<uint32_t> all_givens = givens_in_row(i, givens);
             //std::cout << "Givens in row are ";
-            //print_set(all_givens);
+            //std::cout << (all_givens);
             std::set<uint32_t> givens_col = givens_in_col(j, givens);
             //std::cout << "Givens in column are ";
-            //print_set(givens_col);
+            //std::cout << (givens_col);
             all_givens.insert(givens_col.begin(), givens_col.end());
             std::set<uint32_t> givens_house = givens_in_house(i, j, givens, houses);
             //std::cout << "Givens in house are ";
-            //print_set(givens_house);
+            //std::cout << (givens_house);
             all_givens.insert(givens_house.begin(), givens_house.end());
 
             std::set<uint32_t> possibles;
@@ -680,12 +693,13 @@ class SudokuAnalysis {
             std::stringstream o;
             o << "{";
             json_add_field("id", sudoku_id, o);
+            json_add_field("original_sudoku", original_sudoku_str, o);
             json_add_field("givens_to_empty_ratio", givens_to_empty_ratio, o);
             json_add_field("unique_solutions", all_unique_solutions, o);
             json_add_field("avg_number_of_steps", avg_number_of_steps, o);
             json_add_field("avg_failure_to_success_ratio", avg_failure_to_success_ratio, o);
             json_add_field("avg_candidates_for_picked_cell", avg_candidates_for_picked_cell, o);
-            json_add_field("avg_median_of_candidates_for_cell", avg_median_of_candidates_for_cell, o);
+            json_add_field("avg_median_of_candidates_for_cell", avg_median_of_candidates_for_cell, o, false);
             o << "}";
             return o.str();
         }
@@ -711,6 +725,7 @@ class SudokuAnalysis {
             for (std::size_t i = 0; i < N; i++) {
                 auto& s = solutions[i];
                 sudoku_id = s.get_sudoku_id();
+                original_sudoku_str = s.get_givens();
                 givens_to_empty_ratio = s.get_givens_to_empty_ratio();
                 number_of_steps.push_back(s.get_difficulty().get_number_of_steps());
                 if (s.get_num_successful_outcomes() > 0) {
@@ -735,8 +750,8 @@ class SudokuAnalysis {
             avg_median_of_candidates_for_cell = total_median_candidates/N;
         }
 
-        void json_add_field(std::string_view key, auto& value, std::stringstream& s) {
-            s << key << " : " << value << ",\n";
+        void json_add_field(std::string_view key, auto& value, std::stringstream& s, bool trailing_comma = true) {
+            s << "\"" << key << "\"" << " : " << value << (trailing_comma ? "," : "") << "\n";
         }
         std::set<std::string>& get_all_unique_solutions() {
             return all_unique_solutions;
@@ -775,6 +790,7 @@ class SudokuAnalysis {
     private:
         std::size_t N;
         uint32_t sudoku_id;
+        std::string original_sudoku_str;
         std::set<std::string> all_unique_solutions;
         std::vector<double> number_of_steps;
         double avg_number_of_steps;
@@ -857,8 +873,8 @@ public:
         //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         //std::cout<< "Thread ID is " << std::this_thread::get_id() << std::endl;
         for (uint32_t i = 0; i < num_iterations; i++) {
-            std::cout << "Iteration number " << i << std::endl;
-            std::cout << "----------------------------------------------------------" << std::endl;
+            //std::cout << "Iteration number " << i << std::endl;
+            //std::cout << "----------------------------------------------------------" << std::endl;
             SolveSudokuAndRecurse(solver_state.get());
             //std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
             //std::cout << "Time taken = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << std::endl;
@@ -876,7 +892,7 @@ public:
         this->solution_file_path = output_folder;
         this->num_iterations = num_iterations;
         this->randomness = randomness;
-        printf("Initialized solver with o/p %s, iter %u, randomness %u\n", this->solution_file_path.c_str(), this->num_iterations, this->randomness);
+        //printf("Initialized solver with o/p %s, iter %u, randomness %u\n", this->solution_file_path.c_str(), this->num_iterations, this->randomness);
         BuildInitialSudokuState();
     }
 
@@ -975,8 +991,7 @@ private:
                 for (auto it = pq_map.begin(); it != pq_map.end(); it++) {
                     const Point& p = it->first;
                     CellCandidate* cell = &it->second;
-                    std::cout << "Key : " << p << " Cell Ptr = " << cell << " Candidates = ";
-                    print_set<uint32_t>(cell->candidates);
+                    std::cout << "Key : " << p << " Cell Ptr = " << cell << " Candidates = " << cell->candidates;
                 }
             }
         private:
@@ -1041,7 +1056,7 @@ private:
 
 void Solver::AnalyzeSolutions() {
     std::unique_ptr<SudokuAnalysis> analyzer = std::make_unique<SudokuAnalysis>(std::move(found_solutions));
-    analyzer->DebugAnalysisData();
+    //analyzer->DebugAnalysisData();
     auto json = analyzer->serialize_to_json_string();
     std::cout << "Solver statistics as JSON: " << json << std::endl;
     WriteToOutputFile(json);
@@ -1232,7 +1247,7 @@ void analyzeSudokus(CommandLineArgs options)
     std::vector<Solver> solvers;
     auto ps_it = parsed_sudokus.begin();
     uint32_t i = 0;
-    while (i < 1/*parsed_sudokus.size()*/) {
+    while (i < parsed_sudokus.size()) {
         auto next_ps_it = ps_it + 1;
         solvers.push_back(Solver(std::move(*ps_it), fs::path(options.output_folder), options.num_iterations, options.randomness));
         ps_it = next_ps_it;
