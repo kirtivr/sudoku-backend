@@ -1,9 +1,9 @@
 {"id" : 34,
-"original_sudoku" : "050010040107000602000905000208030501040070020901080406000401000304000709020060010",
-"givens_to_empty_ratio" : 0.62,
-"unique_solutions" : [ "852716943197843652463925187278634591645179328931582476786491235314258769529367814" ],
-"avg_number_of_steps" : 285.2,
-"avg_failure_to_success_ratio" : 58.2,
+"original_sudoku" : "130002008000009000000000276002000600000401930001073000900040000000930080000008010",
+"givens_to_empty_ratio" : 0.421053,
+"unique_solutions" : [ "137562498624789153859314276372895641568421937491673825983147562215936784746258319" ],
+"avg_number_of_steps" : 422.4,
+"avg_failure_to_success_ratio" : 96.2,
 "avg_candidates_for_picked_cell" : 4,
-"avg_median_of_candidates_for_cell" : 4.15715
+"avg_median_of_candidates_for_cell" : 4.194
 }
